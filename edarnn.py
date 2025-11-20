@@ -19,6 +19,7 @@ from torchvision.models.detection import MaskRCNN
 from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
+from torch.utils.data import Subset
 
 from dataloader import *
 from scoring import *
@@ -118,8 +119,22 @@ def validate_epoch(model, dataloader, device):
 if __name__ == "__main__":
     model = create_light_mask_rcnn()
     model.to(device)
+    print(f"Device {device}".format())
+
+    print("Torch version:", torch.__version__)
+    print("CUDA available:", torch.cuda.is_available())
+    print("Torch built with CUDA:", torch.version.cuda)
+    print("GPU count:", torch.cuda.device_count())
 
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+    full_dataset = ForgeryDataset(
+        paths['train_authentic'],
+        paths['train_forged'],
+        paths['train_masks'],
+        transform=train_transform
+    )
+    full_dataset = Subset(full_dataset, list(range(1000)))
 
     # Split into train/val
     train_size = int(0.8 * len(full_dataset))
@@ -161,8 +176,7 @@ if __name__ == "__main__":
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
         # We save the model every 2 epochs
-        if (epoch + 1) % 2 == 0:
-            torch.save(model.state_dict(), f'mask_rcnn_epoch_{epoch+1}.pth')
+        torch.save(model.state_dict(), f'mask_rcnn_epoch_{epoch+1}.pth')
 
     val_iou, val_dice = evaluate_segmentation(model, val_loader, device)
     print(f"IoU: {val_iou:.4f} | Dice: {val_dice:.4f}")

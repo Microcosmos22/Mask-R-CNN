@@ -69,11 +69,12 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5):
                 else:
                     # Combine predicted instance masks via max
                     pred_mask = torch.max(pred['masks'].squeeze(1), dim=0)[0]
-                    pred_mask = (pred_mask.cpu().numpy() > threshold).astype(np.uint8)
+                    pred_mask_np = (pred_mask.cpu().numpy() > threshold).astype(np.uint8)
 
-                true_mask_np = true_mask.numpy()
+                true_mask_np = true_mask.cpu().numpy()
 
-                iou_scores.append(binary_iou(pred_mask, true_mask_np))
-                dice_scores.append(binary_dice(pred_mask, true_mask_np))
+
+                iou_scores.append(binary_iou(pred_mask_np, true_mask_np))
+                dice_scores.append(binary_dice(pred_mask_np, true_mask_np))
 
     return np.mean(iou_scores), np.mean(dice_scores)
