@@ -30,19 +30,6 @@ class ForgeryDataset(Dataset):
         # Collect all data samples
         self.samples = []
 
-        # Authentic images
-        for file in os.listdir(authentic_path):
-            img_path = os.path.join(authentic_path, file)
-            base_name = file.split('.')[0]
-            mask_path = os.path.join(masks_path, f"{base_name}.npy")
-
-            self.samples.append({
-                'image_path': img_path,
-                'mask_path': mask_path,
-                'is_forged': False,
-                'image_id': base_name
-            })
-
         # Forged images
         for file in os.listdir(forged_path):
             img_path = os.path.join(forged_path, file)
@@ -56,10 +43,25 @@ class ForgeryDataset(Dataset):
                 'image_id': base_name
             })
 
+        # Authentic images
+        if (authentic_path is not None):
+            for file in os.listdir(authentic_path):
+                img_path = os.path.join(authentic_path, file)
+                base_name = file.split('.')[0]
+                mask_path = os.path.join(masks_path, f"{base_name}.npy")
+
+                self.samples.append({
+                    'image_path': img_path,
+                    'mask_path': mask_path,
+                    'is_forged': False,
+                    'image_id': base_name
+                })
+
     def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, transform_arg = True):
+
         sample = self.samples[idx]
 
         # Load image
@@ -87,13 +89,14 @@ class ForgeryDataset(Dataset):
         assert image.shape[:2] == mask.shape, f"Shape mismatch: img {image.shape}, mask {mask.shape}"
 
         # Apply transformations
-        if self.transform:
-            transformed = self.transform(image=image, mask=mask)
-            image = transformed['image']
-            mask = transformed['mask']
-        else:
-            image = F_transforms.to_tensor(image)
-            mask = torch.tensor(mask, dtype=torch.uint8)
+        if transform_arg:
+            if self.transform:
+                transformed = self.transform(image=image, mask=mask)
+                image = transformed['image']
+                mask = transformed['mask']
+            else:
+                image = F_transforms.to_tensor(image)
+                mask = torch.tensor(mask, dtype=torch.uint8)
 
         # Prepare targets for Mask R-CNN
         if sample['is_forged'] and mask.sum() > 0:

@@ -22,7 +22,6 @@ from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
 
 from dataloader import *
-from scoring import *
 
 import warnings
 warnings.filterwarnings('ignore')
@@ -134,7 +133,7 @@ if __name__ == "__main__":
         paths['train_masks'],
         transform=train_transform
     )
-    full_dataset = Subset(full_dataset, list(range(1000)))
+    full_dataset = Subset(full_dataset, list(range(400)))
 
     # Split into train/val
     train_size = int(0.8 * len(full_dataset))
