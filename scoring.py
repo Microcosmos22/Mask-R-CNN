@@ -103,13 +103,16 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
     model.eval()
     iou_scores = []
     dice_scores = []
+    properties = []
 
+    j=0
     with torch.no_grad():
         for images, targets in tqdm(dataloader, desc="Evaluating"):
             images = [img.to(device) for img in images]
             predictions = model(images)
 
             for pred, target in zip(predictions, targets):
+                j+=1
                 # Ground truth mask (combine all objects)
                 true_mask = torch.zeros_like(images[0][0], dtype=torch.uint8, device=device)
                 for gt_mask in target['masks']:
@@ -125,18 +128,16 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
 
                 true_mask_np = true_mask.cpu().numpy()
 
+                o_image, o_mask = test_dataset.get_raw_img_mask(j)
+                properties.append(test_dataset.get_image_props(o_image, o_mask))
                 iou_scores.append(binary_iou(pred_mask_np, true_mask_np, False))
                 dice_scores.append(binary_dice(pred_mask_np, true_mask_np, True))
 
-    mean_iou = np.mean(iou_scores) if iou_scores else 0.0
-    mean_dice = np.mean(dice_scores) if dice_scores else 0.0
-
-    print(f"\nMean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
-    return mean_iou, mean_dice
+    return iou_scores, dice_scores, properties
 
 if __name__ == "__main__":
     model = create_light_mask_rcnn()                 # create model
-    model.load_state_dict(torch.load("model.pth", map_location="cpu"))
+    model.load_state_dict(torch.load("mask_rcnn_epoch_2.pth", map_location="cpu"))
     model.eval()
     model.to(device)
 
@@ -156,4 +157,8 @@ if __name__ == "__main__":
 
 
     val_iou, val_dice = evaluate_segmentation(model, test_loader, device)
-    print(f"IoU: {val_iou:.4f} | Dice: {val_dice:.4f}")
+
+    mean_iou = np.mean(iou_scores) if iou_scores else 0.0
+    mean_dice = np.mean(dice_scores) if dice_scores else 0.0
+
+    print(f"\nMean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")

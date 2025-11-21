@@ -82,7 +82,7 @@ def train_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
 
-    for batch_idx, (images, targets) in enumerate(tqdm(dataloader, desc="Training")):
+    for images, targets in tqdm(dataloader, desc="Training"):
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -154,7 +154,7 @@ if __name__ == "__main__":
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
-    num_epochs = 1
+    num_epochs = 2
     train_losses = []
     val_losses = []
 
@@ -176,6 +176,3 @@ if __name__ == "__main__":
 
         # We save the model every 2 epochs
         torch.save(model.state_dict(), f'mask_rcnn_epoch_{epoch+1}.pth')
-
-    val_iou, val_dice = evaluate_segmentation(model, val_loader, device)
-    print(f"IoU: {val_iou:.4f} | Dice: {val_dice:.4f}")

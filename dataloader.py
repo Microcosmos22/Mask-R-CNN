@@ -60,7 +60,22 @@ class ForgeryDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
-    def __getitem__(self, idx, transform_arg = True):
+    def get_raw_img_mask(self, idx):
+        sample = self.samples[idx]
+        image_raw = Image.open(sample['image_path']).convert('RGB')
+        image_raw = np.array(image_raw)  # (H, W, 3)
+        mask = np.load(sample['mask_path'])
+
+        return image_raw, mask
+
+    def get_image_props(self, image, mask):
+        boxes, labels, masks = self.mask_to_boxes(mask)
+        return {
+            "Npixels" : len(image[0])*len(image[1]),
+            "Mask whiteness" : np.sum(masks)/ (len(image[0])*len(image[1]))
+            }
+
+    def __getitem__(self, idx):
 
         sample = self.samples[idx]
 
@@ -89,14 +104,13 @@ class ForgeryDataset(Dataset):
         assert image.shape[:2] == mask.shape, f"Shape mismatch: img {image.shape}, mask {mask.shape}"
 
         # Apply transformations
-        if transform_arg:
-            if self.transform:
-                transformed = self.transform(image=image, mask=mask)
-                image = transformed['image']
-                mask = transformed['mask']
-            else:
-                image = F_transforms.to_tensor(image)
-                mask = torch.tensor(mask, dtype=torch.uint8)
+        if self.transform:
+            transformed = self.transform(image=image, mask=mask)
+            image = transformed['image']
+            mask = transformed['mask']
+        else:
+            image = F_transforms.to_tensor(image)
+            mask = torch.tensor(mask, dtype=torch.uint8)
 
         # Prepare targets for Mask R-CNN
         if sample['is_forged'] and mask.sum() > 0:
