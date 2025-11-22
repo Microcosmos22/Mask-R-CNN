@@ -65,16 +65,6 @@ def binary_iou(pred_mask, true_mask, debug=False):
     union = np.logical_or(pred_mask, true_mask).sum()
     iou = intersection / union if union != 0 else (1.0 if pred_mask.sum() == 0 else 0.0)
 
-    if debug and true_mask.sum()!=0:
-        print("\n==== IOU DEBUG ====")
-        print("Pred positives:", pred_mask.sum())
-        print("True positives:", true_mask.sum())
-        print("Intersection:", intersection)
-        print("Union:", union)
-        print("IoU:", iou)
-        plot_masks(true_mask, pred_mask, title_prefix="Debug", save_path="mask_debug.png")
-
-
     return iou
 
 def binary_dice(pred_mask, true_mask, debug=True):
@@ -85,17 +75,6 @@ def binary_dice(pred_mask, true_mask, debug=True):
     total = pred_mask.sum() + true_mask.sum()
     dice = (2 * intersection / total) if total != 0 else (1.0 if pred_mask.sum() == 0 else 0.0)
 
-    print(true_mask.sum())
-    if debug and true_mask.sum()!=0:
-        print("\n==== DICE DEBUG ====")
-        print("Pred positives:", pred_mask.sum())
-        print("Whiteness:", true_mask.sum()/65536*100)
-        print("DICE: ", dice)
-
-        print("Height:", true_mask.shape[1])
-        print("Width:", true_mask.shape[0])
-        plot_masks(true_mask, pred_mask, title_prefix="Debug", save_path="mask_debug.png")
-
 
     return dice
 
@@ -103,35 +82,41 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
     model.eval()
     iou_scores = []
     dice_scores = []
-    properties = []
+    properties = defaultdict(list)
 
-    j=0
     with torch.no_grad():
-        for images, targets in tqdm(dataloader, desc="Evaluating"):
+        for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating")):
             images = [img.to(device) for img in images]
             predictions = model(images)
 
-            for pred, target in zip(predictions, targets):
-                j+=1
-                # Ground truth mask (combine all objects)
+            # Ground truth combined mask
+            if len(targets[0]['masks']) > 0:
+                true_mask = torch.max(targets[0]['masks'], dim=0)[0].to(device)
+            else:
                 true_mask = torch.zeros_like(images[0][0], dtype=torch.uint8, device=device)
-                for gt_mask in target['masks']:
-                    true_mask = torch.max(true_mask, gt_mask.to(device))
 
+            # Predicted combined mask
+            if len(predictions[0]['masks']) > 0:
+                pred_mask = torch.max(predictions[0]['masks'].squeeze(1), dim=0)[0]
+                pred_mask = (pred_mask > threshold).to(torch.uint8)
+            else:
+                pred_mask = torch.zeros_like(true_mask)
 
-                # Predicted mask (combine all instances)
-                if len(pred['masks']) == 0:
-                    pred_mask_np = torch.zeros_like(true_mask).cpu().numpy()
-                else:
-                    pred_mask = torch.max(pred['masks'].squeeze(1), dim=0)[0]
-                    pred_mask_np = (pred_mask.cpu().numpy() > threshold).astype(np.uint8)
+            # Fetch original untransformed image + mask using the dataset index
+            dataset_index = int(targets[0]['image_id'].item())
+            raw_img, raw_mask = test_dataset.get_raw_img_mask(idx)
 
-                true_mask_np = true_mask.cpu().numpy()
+            # Save properties for later correlation analysis
+            prop = test_dataset.get_image_props(raw_img, raw_mask)
+            for key, value in prop.items():
+                properties[key].append(value)
+                #print(properties)
 
-                o_image, o_mask = test_dataset.get_raw_img_mask(j)
-                properties.append(test_dataset.get_image_props(o_image, o_mask))
-                iou_scores.append(binary_iou(pred_mask_np, true_mask_np, False))
-                dice_scores.append(binary_dice(pred_mask_np, true_mask_np, True))
+            iou_scores.append(binary_iou(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
+            dice_scores.append(binary_dice(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
+
+            if idx > 20:
+                print(f"Image {idx} with size: {properties['Npixels'][-1]} and whiteness {properties['WhiteNess'][-1]}")
 
     return iou_scores, dice_scores, properties
 
@@ -151,14 +136,26 @@ if __name__ == "__main__":
     #test_dataset = Subset(test_dataset, list(range(400)))
 
     # Creating dataloaders
-    test_loader = DataLoader(test_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
     print(f"Train samples: {len(test_dataset)}")
 
 
-    val_iou, val_dice = evaluate_segmentation(model, test_loader, device)
+    iou, dice, props = evaluate_segmentation(model, test_loader, device)
 
-    mean_iou = np.mean(iou_scores) if iou_scores else 0.0
-    mean_dice = np.mean(dice_scores) if dice_scores else 0.0
+    mean_iou = np.mean(iou) if iou else 0.0
+    mean_dice = np.mean(dice) if dice else 0.0
 
     print(f"\nMean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
+
+    sizes = props["Npixels"]
+    wn = props["WhiteNess"]
+
+    print(sizes)
+    plt.scatter(sizes, iou)
+    plt.scatter(sizes, dice)
+    plt.show()
+
+    plt.scatter(wn, iou)
+    plt.scatter(wn, dice)
+    plt.show()

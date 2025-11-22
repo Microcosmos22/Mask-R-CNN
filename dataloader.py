@@ -70,9 +70,12 @@ class ForgeryDataset(Dataset):
 
     def get_image_props(self, image, mask):
         boxes, labels, masks = self.mask_to_boxes(mask)
+        mask_np = masks.cpu().numpy() if isinstance(masks, torch.Tensor) else masks
+        mask_whiteness = mask_np.sum() / (image.shape[1] * image.shape[2])
+
         return {
             "Npixels" : len(image[0])*len(image[1]),
-            "Mask whiteness" : np.sum(masks)/ (len(image[0])*len(image[1]))
+            "WhiteNess" : mask_whiteness
             }
 
     def __getitem__(self, idx):
@@ -140,11 +143,23 @@ class ForgeryDataset(Dataset):
     def mask_to_boxes(self, mask):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
         if isinstance(mask, torch.Tensor):
-            mask_np = mask.numpy()
+            mask_np = mask.detach().cpu().numpy()
         else:
-            mask_np = mask
+            mask_np = np.array(mask)
 
-        # Find contours in the mask
+        # --- FIX: squeeze extra dimensions ---
+        if mask_np.ndim == 3:
+            mask_np = mask_np.squeeze()
+
+        # --- FIX: ensure binary + correct type ---
+        mask_np = (mask_np > 0).astype(np.uint8)
+
+        # Safety: fall back to empty if shape still wrong
+        if mask_np.ndim != 2:
+            return (torch.zeros((0,4),dtype=torch.float32),
+                    torch.zeros((0,),dtype=torch.int64),
+                    torch.zeros((0, *mask_np.shape[-2:]),dtype=torch.uint8))
+
         contours, _ = cv2.findContours(mask_np, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         boxes = []
