@@ -25,6 +25,9 @@ from dataloader import *
 from scoring import *
 
 import warnings
+from skorch import NeuralNet
+from skorch.helper import predefined_split
+from sklearn.model_selection import GridSearchCV
 
 
 warnings.filterwarnings('ignore')
@@ -62,6 +65,43 @@ train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=
 val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 feature_extractors = []
+
+
+# Skorch requires a class with forward, returning a tensor/loss dict
+class SkorchMaskRCNN(nn.Module):
+    def __init__(self, feat_ex=0, out_ch=256, num_classes=2, samplR=1):
+        super().__init__()
+        self.model = create_light_mask_rcnn(feat_ex, out_ch, num_classes, samplR=samplR)
+
+    def forward(self, images, targets=None):
+        # If targets is None, just return predictions (used for scoring)
+        if targets is None:
+            return self.model(images)
+        # Otherwise, return losses (used for training)
+        loss_dict = self.model(images, targets)
+        total_loss = sum(loss_dict.values())
+        print(total_loss)
+
+        return total_loss
+
+def score(self, X, y=None):
+    """Return a single scalar loss over a dataset X for GridSearchCV."""
+    self.model.eval()
+    total_loss = 0.0
+    count = 0
+    device = next(self.model.parameters()).device
+
+    with torch.no_grad():
+        for images, targets in X:
+            images = [img.to(device) for img in images]
+            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+            loss_dict = self.model(images, targets)
+            total_loss += sum(loss for loss in loss_dict.values()).item()
+            count += 1
+
+    # Negative so GridSearchCV maximizes by default
+    return -total_loss / count
+
 
 def create_light_mask_rcnn(feat_ex = 0, out_ch = 256, num_classes = 2):
     if feat_ex ==0:
@@ -153,7 +193,7 @@ def validate_epoch(model, dataloader, device):
 
     return total_loss / len(dataloader)
 
-def train_parameters(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplr=1
+def train_parameters(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplr=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
     model = create_light_mask_rcnn(feat_ex, out_ch)
     model.to(device)
@@ -173,7 +213,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     patience = 3        # epochs to wait for improvement
     best_val_loss = float('inf')
     epochs_no_improve = 0
-
+    early_stop = False
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
@@ -205,10 +245,36 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
                 print(f"Early stopping triggered after {epoch+1} epochs.")
                 early_stop = True
                 break
-    return np.mean(iou), np.mean(dice), train_loss, val_loss
+    return np.mean(iou), np.mean(dice), train_loss, val_loss, early_stop
 
 if __name__ == "__main__":
-    for feat_ex in [0,1,2]:
-        for out_ch in [576, 256, 128]:
-            print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train}, ")
-            iou, dice, train_loss, val_loss = train_parameters()
+
+    net = NeuralNet(
+        SkorchMaskRCNN,
+        module__feat_ex=0,
+        module__out_ch=256,
+        module__num_classes=2,
+        module__samplR=1,
+        train_split=predefined_split(val_dataset),
+        criterion=lambda output, target: output  # Mask R-CNN forward already returns total_loss
+    )
+
+
+    param_grid = {
+        'module__feat_ex': [0, 1, 2],      # small mobilenet, large mobilenet, resnet34
+        'module__out_ch': [128, 256, 576], # output channels of the 1x1 conv
+        'lr': [1e-3, 5e-4],                # learning rate
+    }
+
+
+    gs = GridSearchCV(
+        net,
+        param_grid,
+        refit=False,      # don’t retrain best automatically
+        scoring=score,  # pass the callable
+        cv=2,
+        verbose=2
+    )
+
+
+    gs.fit(train_dataset, y=None)  # y=None because loss is computed internally
