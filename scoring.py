@@ -26,7 +26,6 @@ from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
 
 from dataloader import *
-
 from edarnn import *
 
 def to_numpy(mask):
@@ -85,7 +84,7 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
     properties = defaultdict(list)
 
     with torch.no_grad():
-        for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating")):
+        for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
             images = [img.to(device) for img in images]
             predictions = model(images)
 
@@ -115,7 +114,7 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
             iou_scores.append(binary_iou(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
             dice_scores.append(binary_dice(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
 
-            if idx > 20:
+            if debug:
                 print(f"Image {idx} with size: {properties['Npixels'][-1]} and whiteness {properties['WhiteNess'][-1]}")
 
     return iou_scores, dice_scores, properties
