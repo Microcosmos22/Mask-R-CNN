@@ -103,10 +103,10 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
 
             # Fetch original untransformed image + mask using the dataset index
             dataset_index = int(targets[0]['image_id'].item())
-            raw_img, raw_mask = test_dataset.get_raw_img_mask(idx)
+            raw_img, raw_mask = dataloader.get_raw_img_mask(idx)
 
             # Save properties for later correlation analysis
-            prop = test_dataset.get_image_props(raw_img, raw_mask)
+            prop = dataloader.get_image_props(raw_img, raw_mask)
             for key, value in prop.items():
                 properties[key].append(value)
                 #print(properties)
