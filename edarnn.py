@@ -27,6 +27,7 @@ from scoring import *
 from sklearn.model_selection import KFold
 import warnings
 from itertools import product
+from wakepy import keep
 
 
 warnings.filterwarnings('ignore')
@@ -203,38 +204,40 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     return np.mean(iou), np.mean(dice), train_loss, val_loss
 
 if __name__ == "__main__":
-    for fold_idx, (train_idx, val_idx) in enumerate(folds):
-        train_subset = Subset(full_dataset, train_idx)
-        val_subset = Subset(full_dataset, val_idx)
 
-        # optionally set transforms
-        val_subset.dataset.transform = val_transform
+    with keep.running():
+        for fold_idx, (train_idx, val_idx) in enumerate(folds):
+            train_subset = Subset(full_dataset, train_idx)
+            val_subset = Subset(full_dataset, val_idx)
 
-        train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
-        val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+            # optionally set transforms
+            val_subset.dataset.transform = val_transform
 
-        print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
+            train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+            val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+            print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
 
 
-        feat_ex = [0, 1, 2]
-        out_ch = [128, 256, 512]
-        lr = [0.003, 0.001, 0.0003]
-        weight_decay = [0.003, 0.001, 0.0003]
-        step_size = [15, 5, 2]
-        gamma = [0.3, 0.1, 0.03]
-        samplR=1
-        rpn_pre_train = 1000
-        rpn_pre_test = 1000
-        rpn_post_train = 200
-        rpn_post_test = 200
+            feat_ex = [0, 1, 2]
+            out_ch = [128, 256, 512]
+            lr = [0.003, 0.001, 0.0003]
+            weight_decay = [0.003, 0.001, 0.0003]
+            step_size = [15, 5, 2]
+            gamma = [0.3, 0.1, 0.03]
+            samplR=1
+            rpn_pre_train = 1000
+            rpn_pre_test = 1000
+            rpn_post_train = 200
+            rpn_post_test = 200
 
-        all_combinations = list(product(
-            feat_ex, out_ch, lr, weight_decay,
-            step_size, gamma
-        ))
+            all_combinations = list(product(
+                feat_ex, out_ch, lr, weight_decay,
+                step_size, gamma
+            ))
 
-        print(f"Total combinations: {len(all_combinations)}")
+            print(f"Total combinations: {len(all_combinations)}")
 
-        for combo in all_combinations:
-                #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+            for combo in all_combinations:
+                    #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+                    iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
