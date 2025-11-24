@@ -168,16 +168,21 @@ def train_epoch(model, dataloader, optimizer, device):
 
     return total_loss / len(dataloader)
 
-def maskrcnn_loss(y_pred, y_true):
-    # y_pred: list of dicts from Mask R-CNN
-    # y_true: list of target dicts
-    device = y_pred[0]['boxes'].device if len(y_pred) > 0 else 'cpu'
-    total_loss = 0
-    for pred, target in zip(y_pred, y_true):
-        target = {k: v.to(device) for k, v in target.items()}
-        loss_dict = model(images=[pred], targets=[target])  # call the model on this batch
-        total_loss += sum(loss for loss in loss_dict.values())
-    return total_loss / len(y_pred)
+# custom loss
+class CustomLoss(nn.Module):
+    def __init__(self, weight=1.0):
+        super().__init__()
+        self.weight = weight
+        self.ce = nn.CrossEntropyLoss()
+
+    def forward(self, y_pred, y_true):
+        device = y_pred[0]['boxes'].device if len(y_pred) > 0 else 'cpu'
+        total_loss = 0
+        for pred, target in zip(y_pred, y_true):
+            target = {k: v.to(device) for k, v in target.items()}
+            loss_dict = model(images=[pred], targets=[target])  # call the model on this batch
+            total_loss += sum(loss for loss in loss_dict.values())
+        return total_loss / len(y_pred)
 
 
 def validate_epoch(model, dataloader, device):
@@ -272,7 +277,7 @@ if __name__ == "__main__":
                 gamma=0.1
             ))
         ],
-        criterion=maskrcnn_loss
+        criterion=CustomLoss
 
 
     )
