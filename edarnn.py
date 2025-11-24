@@ -24,7 +24,9 @@ from torch.utils.data import Subset
 from dataloader import *
 from scoring import *
 
+from sklearn.model_selection import KFold
 import warnings
+from itertools import product
 
 
 warnings.filterwarnings('ignore')
@@ -51,15 +53,10 @@ full_dataset = ForgeryDataset(
 )
 #full_dataset = Subset(full_dataset, list(range(400)))
 
-# Split into train/val
-train_size = int(0.8 * len(full_dataset))
-val_size = len(full_dataset) - train_size
-train_dataset, val_dataset = torch.utils.data.random_split(full_dataset, [train_size, val_size])
-val_dataset.dataset.transform = val_transform
 
-# Creating dataloaders
-train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
-val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+kf = KFold(n_splits=5, shuffle=True, random_state=42)
+folds = list(kf.split(range(len(full_dataset))))
+
 
 feature_extractors = []
 
@@ -154,15 +151,13 @@ def validate_epoch(model, dataloader, device):
 
     return total_loss / len(dataloader)
 
-def train_parameters(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
+def train_parameters(train_loader, val_loader, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
-    model = create_light_mask_rcnn(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
-    rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200)
+    model = create_light_mask_rcnn(feat_ex, out_ch, lr, weight_decay, step_size, gamma, samplR,
+    rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
     model.to(device)
     print(f"Device {device}".format())
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters()):,}")
-    print(f"Train samples: {len(train_dataset)}")
-    print(f"Val samples: {len(val_dataset)}")
 
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
@@ -208,7 +203,38 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     return np.mean(iou), np.mean(dice), train_loss, val_loss
 
 if __name__ == "__main__":
-    for feat_ex in [0,1,2]:
-        for out_ch in [256]:
-            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            iou, dice, train_loss, val_loss = train_parameters()
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        train_subset = Subset(full_dataset, train_idx)
+        val_subset = Subset(full_dataset, val_idx)
+
+        # optionally set transforms
+        val_subset.dataset.transform = val_transform
+
+        train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+        val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+        print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
+
+
+        feat_ex = [0, 1, 2]
+        out_ch = [128, 256, 512]
+        lr = [0.003, 0.001, 0.0003]
+        weight_decay = [0.003, 0.001, 0.0003]
+        step_size = [15, 5, 2]
+        gamma = [0.3, 0.1, 0.03]
+        samplR=1
+        rpn_pre_train = 1000
+        rpn_pre_test = 1000
+        rpn_post_train = 200
+        rpn_post_test = 200
+
+        all_combinations = list(product(
+            feat_ex, out_ch, lr, weight_decay,
+            step_size, gamma
+        ))
+
+        print(f"Total combinations: {len(all_combinations)}")
+
+        for combo in all_combinations:
+                #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
