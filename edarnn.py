@@ -173,7 +173,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     val_losses = []
     # Early stopping parameters
     patience = 3        # epochs to wait for improvement
-    best_val_loss = float('inf')
+    best_iou = float('inf')
     epochs_no_improve = 0
 
 
@@ -185,7 +185,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         train_losses.append(train_loss)
         val_loss = validate_epoch(model, val_loader, device)
         val_losses.append(val_loss)
-        iou, dice, props = evaluate_segmentation(model, test_loader, device)
+        iou, dice, props = evaluate_segmentation(model, val_loader, device)
 
         scheduler.step()
 
@@ -194,8 +194,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
 
         """ Early stopping check """
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
+        if iou < best_iou:
+            best_iou = iou
             epochs_no_improve = 0
             # Save best model
             torch.save(model.state_dict(), 'mask_rcnn_best.pth')
