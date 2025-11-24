@@ -49,7 +49,7 @@ full_dataset = ForgeryDataset(
     paths['train_masks'],
     transform=train_transform
 )
-full_dataset = Subset(full_dataset, list(range(400)))
+#full_dataset = Subset(full_dataset, list(range(400)))
 
 # Split into train/val
 train_size = int(0.8 * len(full_dataset))
@@ -63,7 +63,8 @@ val_loader = DataLoader(val_dataset, batch_size=4, shuffle=False, collate_fn=lam
 
 feature_extractors = []
 
-def create_light_mask_rcnn(feat_ex = 0, out_ch = 256, num_classes = 2):
+def create_light_mask_rcnn(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
+rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
     if feat_ex ==0:
         backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
     elif feat_ex == 1:
@@ -153,9 +154,10 @@ def validate_epoch(model, dataloader, device):
 
     return total_loss / len(dataloader)
 
-def train_parameters(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplr=1
+def train_parameters(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
-    model = create_light_mask_rcnn(feat_ex, out_ch)
+    model = create_light_mask_rcnn(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
+    rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200)
     model.to(device)
     print(f"Device {device}".format())
     print(f"Number of parameters: {sum(p.numel() for p in model.parameters()):,}")
@@ -166,7 +168,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
-    num_epochs = 2
+    num_epochs = 6
     train_losses = []
     val_losses = []
     # Early stopping parameters
@@ -185,9 +187,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         val_losses.append(val_loss)
         iou, dice, props = evaluate_segmentation(model, test_loader, device)
 
-        # Scheduler step
         scheduler.step()
-
 
 
         print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
@@ -209,6 +209,6 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
 if __name__ == "__main__":
     for feat_ex in [0,1,2]:
-        for out_ch in [576, 256, 128]:
-            print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train}, ")
+        for out_ch in [256]:
+            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             iou, dice, train_loss, val_loss = train_parameters()
