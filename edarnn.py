@@ -204,6 +204,16 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     return np.mean(iou), np.mean(dice), train_loss, val_loss
 
 if __name__ == "__main__":
+<<<<<<< HEAD
+=======
+    losses = []
+
+    for fold_idx, (train_idx, val_idx) in enumerate(folds):
+        losses_along_folds = []
+
+        train_subset = Subset(full_dataset, train_idx)
+        val_subset = Subset(full_dataset, val_idx)
+>>>>>>> d52a694 (appending losses for each params, folds (at end of epochs, assuming early stop is working))
 
     with keep.running():
         for fold_idx, (train_idx, val_idx) in enumerate(folds):
@@ -238,6 +248,15 @@ if __name__ == "__main__":
 
             print(f"Total combinations: {len(all_combinations)}")
 
+<<<<<<< HEAD
             for combo in all_combinations:
                     #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
                     iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+=======
+        for combo in all_combinations:
+            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+            iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+            losses_along_folds.append([iou, dice, train_loss, val_loss])
+
+        losses.append(losses_along_folds)
+>>>>>>> d52a694 (appending losses for each params, folds (at end of epochs, assuming early stop is working))
