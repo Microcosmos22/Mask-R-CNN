@@ -79,49 +79,172 @@ def plot_similar_masks(masks):
 
     time.sleep(2)
 
+def extract_region_from_box(img, full_mask, box):
+    # img: C,H,W
+    # full_mask: H,W
+    # box: [xmin, ymin, xmax, ymax]
+
+    xmin, ymin, xmax, ymax = box.int().tolist()
+
+    crop_img  = img[:, ymin:ymax, xmin:xmax]
+    crop_mask = full_mask[ymin:ymax, xmin:xmax]
+
+    return crop_img, crop_mask, (xmin, ymin)
+
+def tighten_mask(crop_img, crop_mask):
+    y, x = np.where(crop_mask.cpu().numpy() > 0)
+    ymin, ymax = y.min(), y.max()
+    xmin, xmax = x.min(), x.max()
+
+    crop_img  = crop_img[:, ymin:ymax+1, xmin:xmax+1]
+    crop_mask = crop_mask[ymin:ymax+1, xmin:xmax+1]
+
+    return crop_img, crop_mask
+
+import torchvision.transforms.functional as TF
+import random
+
+def transform_region(crop_img, crop_mask):
+    angle = random.uniform(-180, 180)
+    scale = random.uniform(0.7, 1.3)
+
+    crop_img_t = TF.affine(crop_img, angle=angle, translate=[0,0],
+                           scale=scale, shear=[0,0])
+    crop_mask_t = TF.affine(crop_mask.unsqueeze(0), angle=angle,
+                            translate=[0,0], scale=scale, shear=[0,0])
+    crop_mask_t = (crop_mask_t.squeeze(0) > 0.5).float()
+
+    return crop_img_t, crop_mask_t
+
+def paste_region(img, mask, crop_img, crop_mask, top, left):
+    C,H,W = img.shape
+    h, w = crop_mask.shape
+
+    img[:, top:top+h, left:left+w] = (
+        img[:, top:top+h, left:left+w] * (1 - crop_mask) + crop_img * crop_mask
+    )
+
+    mask_new = mask.clone()
+    mask_new[top:top+h, left:left+w] = torch.logical_or(
+        mask_new[top:top+h, left:left+w], crop_mask
+    ).float()
+
+    return img, mask_new
 
 
-forged = 0
-non = 0
-idx_f = []
-images_f = []
-mask_f = []
 
-copypaste_count = 0
+def find_copypaste_forgeries():
+    similar_matrices = []
 
-for idx, (img, target) in enumerate(tqdm(full_dataset)):
+    forged = 0
+    non = 0
+    idx_f = []
+    images_f = []
+    mask_f = []
+    copymove_idx = []
 
-    if target['masks'].sum() > 10:
-        forged+=1
-        idx_f.append(idx)
+    copypaste_count = 0
 
-        """ Check if any two regions are similar """
+    for idx, (img, target) in enumerate(tqdm(full_dataset)):
+
+        if target['masks'].sum() > 10:
+            forged+=1
+            idx_f.append(idx)
+
+            """ Check if any two regions are similar """
+            boxes = target['boxes']
+            masks = target['masks']
+            length = len(target['boxes'])
+
+            similar = np.zeros((length,length), np.int8)
+
+
+            if length > 1:
+                normalized = [normalize_mask(masks[k].float()) for k in range(length)]
+
+                for i in range(length):
+                    for j in range(0,i):
+                        if i != j:
+
+                            c1 = normalized[i]
+                            c2 = normalized[j]
+
+                            dist = contour_distance(c1, c2)
+
+                            if dist < 0.05:   # threshold: <0.05 → almost identical shapes
+                                similar[i, j] = 1
+
+                                """ Two similar sub-masks  """
+                                #plot_similar_masks(masks)
+
+            similar_matrices.append(similar)
+
+            if np.any(similar):
+                copypaste_count +=1
+                """ Its a copy- move forgery """
+                copymove_idx.append(idx)
+
+        else:
+            non+=1
+    return copymove_idx, copypaste_count, similar_matrices
+
+def gen_copypaste_aug(copymove_idx, similar_matrices):
+
+    for idx in copymove_idx:
+        image, target = full_dataset[idx]
         boxes = target['boxes']
         masks = target['masks']
         length = len(target['boxes'])
 
-        similar = np.zeros((length,length), np.int8)
+        similar = similar_matrices[idx]
+        i, j = np.where(similar == 1)
+        """ Detected pair """
 
+        box = target['boxes'][i] # x0, y0, x1, y1
+        mask = target['masks'][i]   # mask aligned with box
 
-        if length > 1:
-            normalized = [normalize_mask(masks[k].float()) for k in range(length)]
+        #plt.imshow(mask)
+        #plt.show()
 
-            for i in range(length):
-                for j in range(0,i):
-                    if i != j:
+        # 1. extract from full image using box
+        crop_img, crop_mask, (xmin, ymin) = extract_region_from_box(
+            img, full_mask, box
+        )
 
-                        c1 = normalized[i]
-                        c2 = normalized[j]
+        # 2. tighten mask inside the box
+        crop_img, crop_mask = tighten_mask(crop_img, crop_mask)
 
-                        dist = contour_distance(c1, c2)
+        # 3. transform
+        crop_img2, crop_mask2 = transform_region(crop_img, crop_mask)
 
-                        if dist < 0.05:   # threshold: <0.05 → almost identical shapes
-                            similar[i, j] = 1
-                            #plot_similar_masks(masks)
-        if np.any(similar):
-            copypaste_count +=1
-    else:
-        non+=1
+        # 4. pick new position
+        H,W = img.shape[1:]
+        h,w = crop_mask2.shape
+        top  = random.randint(0, H - h)
+        left = random.randint(0, W - w)
+
+        # 5. paste
+        aug_img, aug_mask = paste_region(
+            img.clone(),
+            target['masks'].sum(dim=0).clone(),
+            crop_img2,
+            crop_mask2,
+            top,
+            left
+        )
+"""
+copymove_idx, copymove_count, similar_matrices = find_copypaste_forgeries()
+copymove = {
+    "copymove_idx": copymove_idx,  # plain list
+    "similar_matrices": [sm.tolist() for sm in similar_matrices]
+}
+
+with open("copymove.json", "w") as f:
+    json.dump(copymove, f, indent=4)
+"""
+with open("copymove.json", "r") as f:
+    copymove = json.load(f)
+gen_copypaste_aug(copymove['copymove_idx'], copymove['similar_matrices'])
 
 print(f"forged {forged}, non-forged: {non}")
 print(f"copy_paste: {copypaste_count}")
