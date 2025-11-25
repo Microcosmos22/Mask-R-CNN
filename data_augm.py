@@ -79,17 +79,58 @@ def plot_similar_masks(masks):
 
     time.sleep(2)
 
-def extract_region_from_box(img, full_mask, box):
+def cut_forgery(raw_img, raw_mask, box):
     # img: C,H,W
     # full_mask: H,W
     # box: [xmin, ymin, xmax, ymax]
+    xmin, ymin, xmax, ymax = box
+    return raw_image*raw_mask[xmin:xmax,ymin:ymax]
 
-    xmin, ymin, xmax, ymax = box.int().tolist()
+def paste_forgery(img, patch_img, patch_mask, threshold=20, max_tries=50):
 
-    crop_img  = img[:, ymin:ymax, xmin:xmax]
-    crop_mask = full_mask[ymin:ymax, xmin:xmax]
+    import cv2
+    import numpy as np
+    H, W = img.shape[1:]
+    ph, pw = patch_mask.shape
 
-    return crop_img, crop_mask, (xmin, ymin)
+    # Random top-left corner
+    y = np.random.randint(0, H - ph)
+    x = np.random.randint(0, W - pw)
+
+
+
+    max_tries = 50
+    for _ in range(max_tries):
+        y = np.random.randint(0, H - ph)
+        x = np.random.randint(0, W - pw)
+
+        candidate_region = img[:, y:y+ph, x:x+pw]       # (C, ph, pw)
+        candidate_np = (candidate_region.cpu().numpy() * 255).astype(np.uint8)
+        candidate_np = np.transpose(candidate_np, (1,2,0))  # (ph, pw, C)
+        candidate_gray = cv2.cvtColor(candidate_np, cv2.COLOR_RGB2GRAY)
+
+        gx = cv2.Sobel(candidate_gray, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(candidate_gray, cv2.CV_32F, 0, 1, ksize=3)
+        edge_strength = np.sqrt(gx*gx + gy*gy)
+
+        threshold = 20  # tweak for your image type
+        if np.all(edge_strength[patch_mask > 0] < threshold):
+            # region is smooth enough to paste
+            alpha = patch_mask.float().cpu().numpy()
+            alpha_blur = cv2.GaussianBlur(alpha, (7,7), 0)  # kernel size 7x7, sigma auto
+            """ smooth the patches edges """
+            blended = np.empty_like(target_region)
+            for c in range(img.shape[0]):
+                """ blended region"""
+                blended[c] = alpha_blur * patch_img[c].cpu().numpy() + (1 - alpha_blur) * candidate_region[c]
+
+            """ full size image """
+            img[:, y:y+ph, x:x+pw] = torch.from_numpy(blended)
+
+        else:
+            # try another random position
+            valid_location = None
+
 
 def tighten_mask(crop_img, crop_mask):
     y, x = np.where(crop_mask.cpu().numpy() > 0)
@@ -202,13 +243,13 @@ def gen_copypaste_aug(copymove_idx, similar_matrices):
             i, j = indices[0]
 
             box = target['boxes'][i] # x0, y0, x1, y1
-            mask = target['masks'][i]   # mask aligned with box
+            crop_mask = target['masks'][i]   # mask aligned with box
 
             print(f"Mask size: {raw_mask.shape}, submask: {mask.shape}")
 
             # 1. extract from full image using box
-            crop_img, crop_mask, (xmin, ymin) = extract_region_from_box(
-                img, full_mask, box
+            alpha_image = cut_forgery(
+                raw_img, raw_mask, box
             )
 
             # 2. tighten mask inside the box
