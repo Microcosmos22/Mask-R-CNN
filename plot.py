@@ -101,7 +101,7 @@ def plot_errors_folds():
 
 def plot_eval_examples():
     model = create_light_mask_rcnn()
-    state = torch.load("mask_rcnn_epoch_2.pth", map_location="cpu")
+    state = torch.load("best_model.pth", map_location="cpu")
     model.load_state_dict(state)
     model.eval()
 
