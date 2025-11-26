@@ -189,18 +189,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         """ Train, validate, evaluate """
         train_loss = train_epoch(model, train_loader, optimizer, device)
         train_losses.append(train_loss)
-        if val_loader is not None:
-            val_loss = validate_epoch(model, val_loader, device)
-            val_losses.append(val_loss)
-            iou, dice, props = evaluate_segmentation(model, val_loader, device)
+        val_loss = validate_epoch(model, val_loader, device)
+        val_losses.append(val_loss)
+        iou, dice, props = evaluate_segmentation(model, val_loader, device)
 
-            print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-
-            print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
         scheduler.step()
 
 
-        print(f"Train Loss: {train_loss:.4f}")
+        print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
 
         """ Early stopping check """
         if np.mean(iou) < best_iou:
@@ -215,7 +212,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
                 print(f"Early stopping triggered after {epoch+1} epochs.")
                 early_stop = True
                 break
-    return best_iou, best_dice, train_loss, val_loss
+    return model, best_iou, best_dice, train_loss, val_loss
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
@@ -267,7 +264,7 @@ if __name__ == "__main__":
 
 
                 #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+                model, iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
 
                 print("saving losses_along_folds_" )
                 losses_along_folds.append([iou, dice, train_loss, val_loss])

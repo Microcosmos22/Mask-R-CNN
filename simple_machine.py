@@ -21,7 +21,7 @@ from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
 
 from dataloader import *
-from scoring import *
+#from scoring import *
 
 from sklearn.model_selection import KFold
 import warnings
@@ -73,10 +73,27 @@ if __name__ == "__main__":
 
         for combo in all_combinations:
 
+                #full_dataset = Subset(full_dataset, list(range(50)))
+                indices = list(range(len(full_dataset)))
+
+                train_idx, val_idx = train_test_split(
+                    indices,
+                    test_size=0.1,
+                    random_state=42,
+                    shuffle=True
+                )
+
+
+                train_subset = Subset(full_dataset, train_idx)
+                val_subset = Subset(full_dataset, val_idx)
+
                 # optionally set transforms
-                train_loader = DataLoader(full_dataset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+                val_subset.dataset.transform = val_transform
+
+                train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+                val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
                 #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-                iou, dice, train_loss, val_loss = train_parameters(train_loader, None, 10, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+                model, iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, 10, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
                 torch.save(model.state_dict(), "best_model.pth")
                 print(" SAVE MODEL")
