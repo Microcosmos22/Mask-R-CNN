@@ -29,6 +29,8 @@ import warnings
 from itertools import product
 from wakepy import keep
 
+import json
+
 
 warnings.filterwarnings('ignore')
 
@@ -52,33 +54,44 @@ full_dataset = ForgeryDataset(
     paths['train_masks'],
     transform=train_transform
 )
-#full_dataset = Subset(full_dataset, list(range(400)))
 
-
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
-folds = list(kf.split(range(len(full_dataset))))
 
 
 feature_extractors = []
 
 def create_light_mask_rcnn(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
-    if feat_ex ==0:
+    if feat_ex == 0:
         backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
+        in_ch = 576
     elif feat_ex == 1:
         backbone = torchvision.models.mobilenet_v3_large(pretrained=False).features
+        in_ch = 960
     elif feat_ex == 2:
-        backbone = torchvision.models.resnet34(pretrained=False).features
+        resnet = torchvision.models.resnet34(pretrained=False)
+        backbone = nn.Sequential(
+            resnet.conv1,
+            resnet.bn1,
+            resnet.relu,
+            resnet.maxpool,
+            resnet.layer1,
+            resnet.layer2,
+            resnet.layer3,
+            resnet.layer4,
+        )
+        backbone.out_channels = 512   # resnet3 4's final feature depth
 
-    backbone.out_channels = 576
+        in_ch = 512
+
 
     # extracts characteristics from an image
     backbone = nn.Sequential(
         backbone,
-        nn.Conv2d(576, out_ch, kernel_size=1),
+        nn.Conv2d(in_ch, out_ch, kernel_size=1),
         nn.ReLU(inplace=True)
     )
     backbone.out_channels = out_ch
+
 
     # Anchor generator
     anchor_generator = AnchorGenerator(
@@ -157,19 +170,16 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     model = create_light_mask_rcnn(feat_ex, out_ch, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
     model.to(device)
-    print(f"Device {device}".format())
-    print(f"Number of parameters: {sum(p.numel() for p in model.parameters()):,}")
-
+    print("\n")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
-    num_epochs = 6
     train_losses = []
     val_losses = []
     # Early stopping parameters
-    patience = 3        # epochs to wait for improvement
-    best_iou = float('inf')
+    patience = 2        # epochs to wait for improvement
+    best_iou = 10000000.1
     epochs_no_improve = 0
 
 
@@ -190,8 +200,9 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
 
         """ Early stopping check """
-        if iou < best_iou:
-            best_iou = iou
+        if np.mean(iou) < best_iou:
+            best_iou = np.mean(iou)
+            best_dice = np.mean(dice)
             epochs_no_improve = 0
             # Save best model
             torch.save(model.state_dict(), 'mask_rcnn_best.pth')
@@ -201,53 +212,68 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
                 print(f"Early stopping triggered after {epoch+1} epochs.")
                 early_stop = True
                 break
-    return np.mean(iou), np.mean(dice), train_loss, val_loss
+    return best_iou, best_dice, train_loss, val_loss
 
 if __name__ == "__main__":
-    losses = []
+    losses = {"params": [], "errors": []}
+    count = 0
 
-    for fold_idx, (train_idx, val_idx) in enumerate(folds):
-        losses_along_folds = []
+    num_epochs = 10
+    #full_dataset = Subset(full_dataset, list(range(50)))
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    folds = list(kf.split(range(len(full_dataset))))
 
-        train_subset = Subset(full_dataset, train_idx)
-        val_subset = Subset(full_dataset, val_idx)
+    feat_ex = [0, 1, 2]
+    out_ch = [256]
+    lr = [0.001]
+    weight_decay = [0.001]
+    step_size = [5]
+    gamma = [0.1]
+    samplR=1
+    rpn_pre_train = 1000
+    rpn_pre_test = 1000
+    rpn_post_train = 200
+    rpn_post_test = 200
+
+    all_combinations = list(product(
+        feat_ex, out_ch, lr, weight_decay,
+        step_size, gamma
+    ))
+
+    print(f"Total combinations: {len(all_combinations)}")
+    print(all_combinations)
+
+    np.save(f"losses.npy", np.asarray([1,2,3,4]))
 
     with keep.running():
-        for fold_idx, (train_idx, val_idx) in enumerate(folds):
-            train_subset = Subset(full_dataset, train_idx)
-            val_subset = Subset(full_dataset, val_idx)
-
-            # optionally set transforms
-            val_subset.dataset.transform = val_transform
-
-            train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
-            val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-            print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
-
-
-            feat_ex = [0, 1, 2]
-            out_ch = [128, 256, 512]
-            lr = [0.003, 0.001, 0.0003]
-            weight_decay = [0.003, 0.001, 0.0003]
-            step_size = [15, 5, 2]
-            gamma = [0.3, 0.1, 0.03]
-            samplR=1
-            rpn_pre_train = 1000
-            rpn_pre_test = 1000
-            rpn_post_train = 200
-            rpn_post_test = 200
-
-            all_combinations = list(product(
-                feat_ex, out_ch, lr, weight_decay,
-                step_size, gamma
-            ))
-
-            print(f"Total combinations: {len(all_combinations)}")
 
         for combo in all_combinations:
-            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
-            losses_along_folds.append([iou, dice, train_loss, val_loss])
+            losses_along_folds = []
+            for fold_idx, (train_idx, val_idx) in enumerate(folds):
+                train_subset = Subset(full_dataset, train_idx)
+                val_subset = Subset(full_dataset, val_idx)
 
-        losses.append(losses_along_folds)
+                # optionally set transforms
+                val_subset.dataset.transform = val_transform
+
+                train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+                val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+                print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
+
+
+
+                #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+
+                print("saving losses_along_folds_" )
+                losses_along_folds.append([iou, dice, train_loss, val_loss])
+                np.save(f"losses_along_folds_{count}.npy", np.asarray([iou, dice, train_loss, val_loss]))
+                count += 1
+
+
+            print(" Saving losses.json")
+            losses["params"].append(combo)
+            losses["errors"].append(losses_along_folds)
+            with open("losses.json", "w") as f:
+                json.dump(losses, f, indent=4)
