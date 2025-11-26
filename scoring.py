@@ -100,7 +100,7 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
                 pred_mask = (pred_mask > threshold).to(torch.uint8)
             else:
                 pred_mask = torch.zeros_like(true_mask)
-
+            """
             # Fetch original untransformed image + mask using the dataset index
             dataset_index = int(targets[0]['image_id'].item())
             raw_img, raw_mask = dataloader.get_raw_img_mask(idx)
@@ -110,7 +110,7 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
             for key, value in prop.items():
                 properties[key].append(value)
                 #print(properties)
-
+            """
             iou_scores.append(binary_iou(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
             dice_scores.append(binary_dice(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
 

@@ -1,4 +1,3 @@
-import os
 import cv2
 import json
 import torch
@@ -30,6 +29,7 @@ from itertools import product
 from wakepy import keep
 
 import json
+import os
 
 
 warnings.filterwarnings('ignore')
@@ -165,7 +165,7 @@ def validate_epoch(model, dataloader, device):
 
     return total_loss / len(dataloader)
 
-def train_parameters(train_loader, val_loader, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
+def train_parameters(train_loader, val_loader, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
     model = create_light_mask_rcnn(feat_ex, out_ch, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
@@ -189,15 +189,18 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         """ Train, validate, evaluate """
         train_loss = train_epoch(model, train_loader, optimizer, device)
         train_losses.append(train_loss)
-        val_loss = validate_epoch(model, val_loader, device)
-        val_losses.append(val_loss)
-        iou, dice, props = evaluate_segmentation(model, val_loader, device)
+        if val_loader is not None:
+            val_loss = validate_epoch(model, val_loader, device)
+            val_losses.append(val_loss)
+            iou, dice, props = evaluate_segmentation(model, val_loader, device)
 
+            print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+            print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
         scheduler.step()
 
 
-        print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-        print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
+        print(f"Train Loss: {train_loss:.4f}")
 
         """ Early stopping check """
         if np.mean(iou) < best_iou:
@@ -264,7 +267,7 @@ if __name__ == "__main__":
 
 
                 #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+                iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
 
                 print("saving losses_along_folds_" )
                 losses_along_folds.append([iou, dice, train_loss, val_loss])
