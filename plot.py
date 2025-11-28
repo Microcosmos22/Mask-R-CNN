@@ -100,6 +100,8 @@ def plot_errors_folds():
     plt.show()
 
 def plot_eval_examples():
+    """ plots single masks """
+    
     model = create_light_mask_rcnn()
     state = torch.load("best_model.pth", map_location="cpu")
     model.load_state_dict(state)

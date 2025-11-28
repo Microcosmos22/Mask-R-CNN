@@ -56,17 +56,20 @@ full_dataset = ForgeryDataset(
 )
 
 
-
 feature_extractors = []
 
-def create_light_mask_rcnn(feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
+def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
     if feat_ex == 0:
         backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
         in_ch = 576
+        backbone.out_channels = 256
+        out_ch = 256
     elif feat_ex == 1:
         backbone = torchvision.models.mobilenet_v3_large(pretrained=False).features
         in_ch = 960
+        backbone.out_channels = 256
+        out_ch = 256
     elif feat_ex == 2:
         resnet = torchvision.models.resnet34(pretrained=False)
         backbone = nn.Sequential(
@@ -79,10 +82,9 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
             resnet.layer3,
             resnet.layer4,
         )
-        backbone.out_channels = 512   # resnet3 4's final feature depth
-
         in_ch = 512
-
+        backbone.out_channels = 512   # resnet3 4's final feature depth
+        out_ch = 512
 
     # extracts characteristics from an image
     backbone = nn.Sequential(
@@ -167,7 +169,7 @@ def validate_epoch(model, dataloader, device):
 
 def train_parameters(train_loader, val_loader, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
-    model = create_light_mask_rcnn(feat_ex, out_ch, lr, weight_decay, step_size, gamma, samplR,
+    model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
     model.to(device)
     print("\n")
@@ -218,13 +220,12 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    num_epochs = 10
+    num_epochs = 1
     #full_dataset = Subset(full_dataset, list(range(50)))
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     folds = list(kf.split(range(len(full_dataset))))
 
     feat_ex = [0, 1, 2]
-    out_ch = [256]
     lr = [0.001]
     weight_decay = [0.001]
     step_size = [5]

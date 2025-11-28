@@ -45,7 +45,7 @@ if __name__ == "__main__":
     from torch.utils.data import random_split, DataLoader
     # 80% train, 20% validation
     # DataLoaders
-    num_epochs = 10
+    num_epochs = 1
 
     feat_ex = [1]
     out_ch = [256]
@@ -95,5 +95,5 @@ if __name__ == "__main__":
 
                 #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
                 model, iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, 10, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
-                torch.save(model.state_dict(), "best_model.pth")
+                torch.save(model.state_dict(), "best_model_1.pth")
                 print(" SAVE MODEL")
