@@ -21,7 +21,6 @@ from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
 
 from dataloader import *
-from scoring import *
 
 from sklearn.model_selection import KFold
 import warnings
@@ -54,6 +53,19 @@ full_dataset = ForgeryDataset(
     paths['train_masks'],
     transform=train_transform
 )
+
+indices = list(range(len(full_dataset)))
+
+train_idx, val_idx = train_test_split(
+    indices,
+    test_size=0.1,
+    random_state=42,
+    shuffle=True
+)
+
+
+train_subset = Subset(full_dataset, train_idx)
+val_subset = Subset(full_dataset, val_idx)
 
 
 feature_extractors = []
@@ -108,11 +120,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         sampling_ratio=samplR
     )
 
-    mask_roi_pooler = torchvision.ops.MultiScaleRoIAlign(
-        featmap_names=['0'],
-        output_size=10,
-        sampling_ratio=samplR
-    )
+    mask_roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'], output_size=56, sampling_ratio=2)
+    #model = MaskRCNN(backbone, num_classes=2, mask_roi_pool=mask_roi_pool)
 
     model = MaskRCNN(
         backbone,
@@ -167,8 +176,8 @@ def validate_epoch(model, dataloader, device):
 
     return total_loss / len(dataloader)
 
-def train_parameters(train_loader, val_loader, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
-rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200):
+def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
+rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
     model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
     model.to(device)
@@ -191,50 +200,70 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         """ Train, validate, evaluate """
         train_loss = train_epoch(model, train_loader, optimizer, device)
         train_losses.append(train_loss)
-        val_loss = validate_epoch(model, val_loader, device)
-        val_losses.append(val_loss)
-        iou, dice, props = evaluate_segmentation(model, val_loader, device)
 
-        scheduler.step()
+        if val_loader is not None:
+            val_loss = validate_epoch(model, val_loader, device)
+            val_losses.append(val_loss)
+            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
+        else:
+            val_losses.append(0)
+            print(f"\nTrain Loss: {train_loss:.4f}")
 
 
-        print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
-        print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
+        if eval_loader is not None:
+            iou, dice, props = evaluate_segmentation(model, eval_loader, device)
 
-        """ Early stopping check """
-        if np.mean(iou) < best_iou:
+            scheduler.step()
+
+            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
+            print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
+
             best_iou = np.mean(iou)
             best_dice = np.mean(dice)
+
+        if not early:
             epochs_no_improve = 0
-            # Save best model
-            torch.save(model.state_dict(), 'mask_rcnn_best.pth')
-        else:
-            epochs_no_improve += 1
-            if epochs_no_improve >= patience:
-                print(f"Early stopping triggered after {epoch+1} epochs.")
-                early_stop = True
-                break
-    return model, best_iou, best_dice, train_loss, val_loss
+            print("Saving model")
+            torch.save(model.state_dict(), machinepath)
+
+        if early:
+            if (np.mean(dice < best_dice)):
+                epochs_no_improve = 0
+                torch.save(model.state_dict(), machinepath)
+            else:
+                epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    print(f"Early stopping triggered after {epoch+1} epochs.")
+                    early_stop = True
+                    break
+    if eval_loader is not None:
+        return model, best_iou, best_dice, train_loss, val_loss
+    elif val_loader is not None:
+        return model, train_loss, val_loss
+    else:
+        return model, train_loss
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    num_epochs = 1
-    #full_dataset = Subset(full_dataset, list(range(50)))
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    folds = list(kf.split(range(len(full_dataset))))
+    machinepath = "best_overfit_machine.pth"
+    num_epochs = 100
+    batch = 1
+    full_dataset = Subset(full_dataset, list(range(5)))
 
-    feat_ex = [0, 1, 2]
+    feat_ex = [0]
     lr = [0.001]
     weight_decay = [0.001]
     step_size = [5]
     gamma = [0.1]
-    samplR=1
+    samplR=2
     rpn_pre_train = 1000
     rpn_pre_test = 1000
     rpn_post_train = 200
     rpn_post_test = 200
+
+    out_ch = [1]
 
     all_combinations = list(product(
         feat_ex, out_ch, lr, weight_decay,
@@ -249,32 +278,25 @@ if __name__ == "__main__":
     with keep.running():
 
         for combo in all_combinations:
-            losses_along_folds = []
-            for fold_idx, (train_idx, val_idx) in enumerate(folds):
-                train_subset = Subset(full_dataset, train_idx)
-                val_subset = Subset(full_dataset, val_idx)
 
-                # optionally set transforms
-                val_subset.dataset.transform = val_transform
+            eval_subset = torch.utils.data.Subset(train_subset, [0])
 
-                train_loader = DataLoader(train_subset, batch_size=4, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
-                val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-                print(f"Fold {fold_idx+1}: Train {len(train_subset)}, Val {len(val_subset)}")
+            print(len(train_subset), len(eval_subset))
 
 
+            # optionally set transforms
+            val_subset.dataset.transform = val_transform
 
-                #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-                model, iou, dice, train_loss, val_loss = train_parameters(train_loader, val_loader, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+            train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+            val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+            eval_loader = DataLoader(eval_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
-                print("saving losses_along_folds_" )
-                losses_along_folds.append([iou, dice, train_loss, val_loss])
-                np.save(f"losses_along_folds_{count}.npy", np.asarray([iou, dice, train_loss, val_loss]))
-                count += 1
+
+            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+            model, train_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
 
             print(" Saving losses.json")
             losses["params"].append(combo)
-            losses["errors"].append(losses_along_folds)
             with open("losses.json", "w") as f:
                 json.dump(losses, f, indent=4)
