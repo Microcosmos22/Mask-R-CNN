@@ -18,6 +18,7 @@ from albumentations.pytorch import ToTensorV2
 from edarnn import *
 from dataloader import *
 import numpy as np
+from encode_submission import *
 
 def plot_errors_parameters():
 
@@ -101,7 +102,7 @@ def plot_errors_folds():
 
 def plot_eval_examples():
     """ plots single masks """
-    
+
     model = create_light_mask_rcnn()
     state = torch.load("best_model.pth", map_location="cpu")
     model.load_state_dict(state)
@@ -115,9 +116,6 @@ def plot_eval_examples():
         with torch.no_grad():
             outputs = model([image])   # must be list
             pred = outputs[0]
-
-            print(pred.keys())
-            print(pred["masks"].shape)
 
         # predicted mask: (N, H, W) float tensor
         if len(pred["masks"]) > 0:
@@ -137,7 +135,44 @@ def plot_eval_examples():
             plt.show()
 
 
+def plot_dataset_samples(dataset, n_samples=50):
+    for i in range(min(n_samples, len(dataset))):
+        image, target = dataset[i]
+
+        # Convert image tensor to numpy for plotting
+        if isinstance(image, torch.Tensor):
+            img_np = image.permute(1, 2, 0).cpu().numpy()
+            img_np = (img_np * np.array([0.229, 0.224, 0.225])) + np.array([0.485, 0.456, 0.406])
+            img_np = np.clip(img_np, 0, 1)
+        else:
+            img_np = image
+        full_mask = full_mask_from_instance_masks(target, img_np.shape)
+
+        plt.figure(figsize=(6, 6))
+        plt.imshow(img_np)
+
+        # Overlay mask in red with some transparency
+        plt.imshow(full_mask.cpu().numpy(), cmap='Reds', alpha=0.4)
+
+        # Draw bounding boxes
+        boxes = target['boxes'].cpu().numpy()
+        for box in boxes:
+            x1, y1, x2, y2 = box
+            rect = plt.Rectangle((x1, y1), x2 - x1, y2 - y1,
+                                 fill=False, color='blue', linewidth=2)
+            plt.gca().add_patch(rect)
+
+        plt.axis('off')
+        plt.show()
 
 
 
-plot_eval_examples()
+# Example usage
+train_dataset = ForgeryDataset(
+    paths['train_authentic'],
+    paths['train_forged'],
+    paths['train_masks'],
+    transform=None  # no transform so we see original image and mask
+)
+
+plot_dataset_samples(train_dataset, n_samples=50)
