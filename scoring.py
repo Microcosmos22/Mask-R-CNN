@@ -28,6 +28,55 @@ from torch.utils.data import Subset
 from dataloader import *
 from edarnn import *
 
+
+def full_mask_from_instance_masks(output, image_shape):
+    """
+    output: dict from MaskRCNN
+    image_shape: network input shape, either (H, W, C) or (C, H, W)
+    H_orig, W_orig: original image size
+    """
+    # Handle both orderings
+    if len(image_shape) == 3:
+        if image_shape[0] in [1, 3]:  # likely (C, H, W)
+            C, H, W = image_shape
+        else:  # likely (H, W, C)
+            H, W, C = image_shape
+    else:
+        raise ValueError(f"Unexpected image_shape: {image_shape}")
+
+    full_mask = torch.zeros((H, W), dtype=torch.uint8)
+
+
+    for box, mask in zip(output['boxes'], output['masks']):
+        x1, y1, x2, y2 = box.int()
+
+        # Skip degenerate boxes
+        if x2 <= x1 or y2 <= y1 or x1<0 or y1<0 or x2>W or y2>H:
+            continue
+
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        else:
+            mask = mask.unsqueeze(0)
+
+        # Resize mask to box size
+        mask_resized = F.interpolate(
+            mask, size=(y2 - y1, x2 - x1),
+            mode='bilinear', align_corners=False
+        )[0, 0]
+
+        mask_bin = (mask_resized > 0.5).byte()
+        full_mask[y1:y2, x1:x2] = mask_bin
+
+    # Resize full mask to original image size
+    full_mask_resized = F.interpolate(
+        full_mask.unsqueeze(0).unsqueeze(0).float(),
+        size=(H, W),
+        mode='nearest'
+    )[0, 0].byte()
+
+    return full_mask_resized
+
 def to_numpy(mask):
     """Convert torch tensor to 2D NumPy bool array."""
     if torch.is_tensor(mask):
@@ -86,20 +135,12 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
     with torch.no_grad():
         for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
             images = [img.to(device) for img in images]
-            predictions = model(images)
+            output = model(images)
 
-            # Ground truth combined mask
-            if len(targets[0]['masks']) > 0:
-                true_mask = torch.max(targets[0]['masks'], dim=0)[0].to(device)
-            else:
-                true_mask = torch.zeros_like(images[0][0], dtype=torch.uint8, device=device)
+            true_mask = full_mask_from_instance_masks(targets[0], images[0].shape)
+            pred_mask = full_mask_from_instance_masks(output[0], images[0].shape)
+            #plot_masks(true_mask, pred_mask)
 
-            # Predicted combined mask
-            if len(predictions[0]['masks']) > 0:
-                pred_mask = torch.max(predictions[0]['masks'].squeeze(1), dim=0)[0]
-                pred_mask = (pred_mask > threshold).to(torch.uint8)
-            else:
-                pred_mask = torch.zeros_like(true_mask)
             """
             # Fetch original untransformed image + mask using the dataset index
             dataset_index = int(targets[0]['image_id'].item())
@@ -120,8 +161,9 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
     return iou_scores, dice_scores, properties
 
 if __name__ == "__main__":
+    """ EVALUATE THE IOU AND DICE """
     model = create_light_mask_rcnn()                 # create model
-    model.load_state_dict(torch.load("mask_rcnn_epoch_2.pth", map_location="cpu"))
+    model.load_state_dict(torch.load("mask_rcnn_best.pth", map_location="cpu"))
     model.eval()
     model.to(device)
 
@@ -132,7 +174,7 @@ if __name__ == "__main__":
         os.path.join(base_path, "supplemental_masks"),
         transform=train_transform
     )
-    #test_dataset = Subset(test_dataset, list(range(400)))
+    test_dataset = Subset(train_subset, list(range(1)))
 
     # Creating dataloaders
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
@@ -150,6 +192,7 @@ if __name__ == "__main__":
     sizes = props["Npixels"]
     wn = props["WhiteNess"]
 
+    """
     print(sizes)
     plt.scatter(sizes, iou)
     plt.scatter(sizes, dice)
@@ -157,4 +200,4 @@ if __name__ == "__main__":
 
     plt.scatter(wn, iou)
     plt.scatter(wn, dice)
-    plt.show()
+    plt.show()"""
