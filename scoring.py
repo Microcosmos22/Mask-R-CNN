@@ -41,9 +41,13 @@ def full_mask_from_instance_masks(output, image_shape):
             C, H, W = image_shape
         else:  # likely (H, W, C)
             H, W, C = image_shape
+        if H == 256 and W == 256:
+            raise Warning("Submask collage will resize to 256x256 due to the image passed being this size")
     else:
         raise ValueError(f"Unexpected image_shape: {image_shape}")
 
+    print("C, H_orig, W_orig")
+    print(C, H, W)
     full_mask = torch.zeros((H, W), dtype=torch.uint8)
 
 
@@ -109,6 +113,8 @@ def binary_iou(pred_mask, true_mask, debug=False):
     pred_mask = to_numpy(pred_mask)
     true_mask = to_numpy(true_mask)
 
+    print(f" Masks shape {pred_mask.shape}, {true_mask.shape}")
+
     intersection = np.logical_and(pred_mask, true_mask).sum()
     union = np.logical_or(pred_mask, true_mask).sum()
     iou = intersection / union if union != 0 else (1.0 if pred_mask.sum() == 0 else 0.0)
@@ -126,7 +132,7 @@ def binary_dice(pred_mask, true_mask, debug=True):
 
     return dice
 
-def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False):
+def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.5, debug=False):
     model.eval()
     iou_scores = []
     dice_scores = []
@@ -134,6 +140,9 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
 
     with torch.no_grad():
         for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
+            if firstN is not None and idx == firstN:
+                break
+
             images = [img.to(device) for img in images]
             output = model(images)
 
@@ -158,6 +167,7 @@ def evaluate_segmentation(model, dataloader, device, threshold=0.5, debug=False)
             if debug:
                 print(f"Image {idx} with size: {properties['Npixels'][-1]} and whiteness {properties['WhiteNess'][-1]}")
 
+
     return iou_scores, dice_scores, properties
 
 if __name__ == "__main__":
@@ -174,7 +184,7 @@ if __name__ == "__main__":
         os.path.join(base_path, "supplemental_masks"),
         transform=train_transform
     )
-    test_dataset = Subset(train_subset, list(range(1)))
+    test_dataset = Subset(train_subset, list(range(2)))
 
     # Creating dataloaders
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))

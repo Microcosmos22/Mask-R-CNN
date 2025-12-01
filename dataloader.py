@@ -64,6 +64,8 @@ class ForgeryDataset(Dataset):
         image_raw = np.array(image_raw)  # (H, W, 3)
         mask = np.load(sample['mask_path'])
 
+        print(self.samples[idx]['image_path'])
+
         return image_raw, mask
 
     def get_image_props(self, image, mask):
@@ -80,6 +82,7 @@ class ForgeryDataset(Dataset):
 
         sample = self.samples[idx]
 
+        print(f" Get {self.samples[idx]['image_path']}")
         # Load image
         image = Image.open(sample['image_path']).convert('RGB')
         image = np.array(image)  # (H, W, 3)

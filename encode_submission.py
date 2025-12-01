@@ -84,7 +84,7 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
 
 
 model = create_light_mask_rcnn(feat_ex = 0)
-state = torch.load("best_overfit_machine.pth", map_location="cpu")
+state = torch.load("mask_rcnn_best.pth", map_location="cpu")
 model.load_state_dict(state)
 model.eval()
 
@@ -98,6 +98,13 @@ test_dataset = ForgeryDataset(
 
 test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
+""" overfit, evaluate on train set """
+test_dataset = Subset(train_subset, list(range(20)))
+
+# Creating dataloaders
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+
 if __name__ == "__main__":
 
     print("test")
@@ -108,35 +115,38 @@ if __name__ == "__main__":
         # a loader with collate_fn returns batches of lists
         image = image[0]           # take first item from batch
         target = target[0]
-        raw_image, raw_mask = test_dataset.get_raw_img_mask(idx)
-
-
+        raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
 
 
         with torch.no_grad():
             outputs = model([image])   # must be list
 
 
-            full_pred_mask = full_mask_from_instance_masks(outputs[0], image.shape)  # shape = network input (H_net, W_net)
+            full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
+            print(torch.sum(full_pred_mask))
 
-            if torch.sum(full_pred_mask) > 10:
+            print(f"pred_mask shape {full_pred_mask.shape}")
+            # pred_mask is (H_net, W_net)
+            H_orig, W_orig, _ = raw_image.shape
 
-                print(f"pred_mask shape {full_pred_mask.shape}")
-                # pred_mask is (H_net, W_net)
-                H_orig, W_orig, _ = raw_image.shape
+            fig, ax = plt.subplots(2)
+            ax[0].imshow(raw_image)
+            ax[0].imshow(raw_mask[0], alpha=0.5)
 
+            ax[1].imshow(full_pred_mask)
+            plt.show()
 
-                plt.imshow(raw_image)
-                plt.imshow(full_pred_mask, alpha=0.5)
-                plt.show()
-
-
-                """ Convert to numpy and encode """
-                """submission = {
-                    "case_id": files[int(idx*4)],
-                    "submission": rle_encode([full_pred_mask_resized.numpy()])
-                }"""
+        iou, dice, props = evaluate_segmentation(model, test_loader, device, 1)
+        print(f"\nMean IoU: {np.mean(iou):.4f}, Mean Dice: {np.mean(dice):.4f}")
 
 
-                #rle = rle_encode(full_pred_mask_resized.numpy())
-                #print(f"rle encoded mask: {rle}")
+
+        """ Convert to numpy and encode """
+        """submission = {
+            "case_id": files[int(idx*4)],
+            "submission": rle_encode([full_pred_mask_resized.numpy()])
+        }"""
+
+
+        #rle = rle_encode(full_pred_mask_resized.numpy())
+        #print(f"rle encoded mask: {rle}")

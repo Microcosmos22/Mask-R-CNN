@@ -283,7 +283,6 @@ if __name__ == "__main__":
 
             print(len(train_subset), len(eval_subset))
 
-
             # optionally set transforms
             val_subset.dataset.transform = val_transform
 
