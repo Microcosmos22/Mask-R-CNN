@@ -20,8 +20,6 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
-
-
 class ForgeryDataset(Dataset):
     def __init__(self, authentic_path, forged_path, masks_path, transform=None, is_train=True):
         self.transform = transform
