@@ -247,7 +247,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
     else:
-        return model, train_losses
+        return model, train_losses, val_losses
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
@@ -298,9 +298,10 @@ if __name__ == "__main__":
 
 
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_loss, val_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
             plt.plot(train_loss)
+            plt.plot(val_loss)
             plt.savefig("last_training.png")
             plt.show()
 
