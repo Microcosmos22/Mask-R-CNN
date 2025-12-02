@@ -1,7 +1,6 @@
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
-from tqdm import tqdm
 import os
 import cv2
 import json
@@ -35,19 +34,20 @@ def full_mask_from_instance_masks(output, image_shape):
     image_shape: network input shape, either (H, W, C) or (C, H, W)
     H_orig, W_orig: original image size
     """
+
     # Handle both orderings
     if len(image_shape) == 3:
         if image_shape[0] in [1, 3]:  # likely (C, H, W)
             C, H, W = image_shape
         else:  # likely (H, W, C)
             H, W, C = image_shape
-        if H == 256 and W == 256:
-            raise Warning("Submask collage will resize to 256x256 due to the image passed being this size")
     else:
         raise ValueError(f"Unexpected image_shape: {image_shape}")
 
-    print("C, H_orig, W_orig")
-    print(C, H, W)
+
+    print("output boxes: ")
+    print(output['boxes'])
+    print("\n")
     full_mask = torch.zeros((H, W), dtype=torch.uint8)
 
 
@@ -133,21 +133,25 @@ def binary_dice(pred_mask, true_mask, debug=True):
     return dice
 
 def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.5, debug=False):
+    """  """
+
     model.eval()
     iou_scores = []
     dice_scores = []
     properties = defaultdict(list)
 
     with torch.no_grad():
-        for idx, (images, targets) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
+        for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
             if firstN is not None and idx == firstN:
                 break
+
+            raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
 
             images = [img.to(device) for img in images]
             output = model(images)
 
-            true_mask = full_mask_from_instance_masks(targets[0], images[0].shape)
-            pred_mask = full_mask_from_instance_masks(output[0], images[0].shape)
+            true_mask = full_mask_from_instance_masks(targets[0], raw_image.shape)
+            pred_mask = full_mask_from_instance_masks(output[0], raw_image.shape)
             #plot_masks(true_mask, pred_mask)
 
             """
@@ -185,6 +189,7 @@ if __name__ == "__main__":
         transform=train_transform
     )
     test_dataset = Subset(train_subset, list(range(2)))
+
 
     # Creating dataloaders
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))

@@ -96,19 +96,12 @@ test_dataset = ForgeryDataset(
 )
 """ transform = train_transform """
 
-test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-""" overfit, evaluate on train set """
-test_dataset = Subset(train_subset, list(range(20)))
-
-# Creating dataloaders
-test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
 
 if __name__ == "__main__":
+    train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
-    print("test")
-    for idx, (image, target) in enumerate(test_loader):
+
+    for idx, (image, target, _) in enumerate(train_loader):
         """ skip authentic images """
         """if (len(target[0]['boxes']) == 0):
             continue"""
@@ -117,15 +110,13 @@ if __name__ == "__main__":
         target = target[0]
         raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
 
+        print("\n raw image shape: ")
+        print(raw_image.shape)
 
         with torch.no_grad():
             outputs = model([image])   # must be list
-
-
+            """ Plot image, mask_pred and mask_true"""
             full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
-            print(torch.sum(full_pred_mask))
-
-            print(f"pred_mask shape {full_pred_mask.shape}")
             # pred_mask is (H_net, W_net)
             H_orig, W_orig, _ = raw_image.shape
 
@@ -136,8 +127,10 @@ if __name__ == "__main__":
             ax[1].imshow(full_pred_mask)
             plt.show()
 
-        iou, dice, props = evaluate_segmentation(model, test_loader, device, 1)
-        print(f"\nMean IoU: {np.mean(iou):.4f}, Mean Dice: {np.mean(dice):.4f}")
+        print(full_pred_mask.shape, raw_mask.shape)
+        iou = binary_iou(full_pred_mask.cpu().numpy(), np.sum(raw_mask, axis = 0))
+        dice = binary_dice(full_pred_mask.cpu().numpy(), np.sum(raw_mask, axis = 0))
+        print(f"\nMean IoU: {iou:.4f}, Mean Dice: {dice:.4f}")
 
 
 

@@ -54,7 +54,9 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-indices = list(range(len(full_dataset)))
+
+dataset = Subset(full_dataset, list(range(5)))
+indices = list(range(len(dataset)))
 
 train_idx, val_idx = train_test_split(
     indices,
@@ -64,8 +66,13 @@ train_idx, val_idx = train_test_split(
 )
 
 
-train_subset = Subset(full_dataset, train_idx)
-val_subset = Subset(full_dataset, val_idx)
+print("\nTRAIN FILES:")
+for idx in train_idx:
+    _, _, filename = dataset[idx]  # or whatever attribute stores filenames
+    print(filename)
+
+train_subset = Subset(dataset, train_idx)
+val_subset = Subset(dataset, val_idx)
 
 
 feature_extractors = []
@@ -144,7 +151,8 @@ def train_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
 
-    for images, targets in tqdm(dataloader, desc="Training"):
+    for images, targets, _ in tqdm(dataloader, desc="Training"):
+
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -166,7 +174,7 @@ def validate_epoch(model, dataloader, device):
     total_loss = 0
 
     with torch.no_grad():
-        for batch_idx, (images, targets) in enumerate(tqdm(dataloader, desc="Validation")):
+        for batch_idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Validation")):
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -238,8 +246,6 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
                     break
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
-    elif val_loader is not None:
-        return model, train_loss, val_loss
     else:
         return model, train_loss
 
@@ -248,7 +254,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "best_overfit_machine.pth"
-    num_epochs = 100
+    num_epochs = 10
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
@@ -294,6 +300,8 @@ if __name__ == "__main__":
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
+            print(len(train_loss))
+            print(train_loss.shape)
 
             print(" Saving losses.json")
             losses["params"].append(combo)
