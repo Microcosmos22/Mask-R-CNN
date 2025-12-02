@@ -55,7 +55,7 @@ full_dataset = ForgeryDataset(
 )
 
 
-dataset = Subset(full_dataset, list(range(5)))
+dataset = Subset(full_dataset, list(range(50)))
 indices = list(range(len(dataset)))
 
 train_idx, val_idx = train_test_split(
@@ -159,6 +159,14 @@ def train_epoch(model, dataloader, optimizer, device):
         # Forward pass
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
+        model.eval()  # temporarily switch to eval mode
+        with torch.no_grad():
+            preds = model([images[0]])
+            scores = preds[0]['scores']  # confidence scores for each box
+            boxes = preds[0]['boxes'][scores > 0.35]
+            print(boxes.shape)
+        model.train()  # switch back to training
+
 
         # Backward pass
         optimizer.zero_grad()
@@ -254,7 +262,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "best_overfit_machine.pth"
-    num_epochs = 300
+    num_epochs = 100
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
