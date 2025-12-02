@@ -20,8 +20,6 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
-
-
 class ForgeryDataset(Dataset):
     def __init__(self, authentic_path, forged_path, masks_path, transform=None, is_train=True):
         self.transform = transform
@@ -66,6 +64,8 @@ class ForgeryDataset(Dataset):
         image_raw = np.array(image_raw)  # (H, W, 3)
         mask = np.load(sample['mask_path'])
 
+        print(self.samples[idx]['image_path'])
+
         return image_raw, mask
 
     def get_image_props(self, image, mask):
@@ -82,6 +82,7 @@ class ForgeryDataset(Dataset):
 
         sample = self.samples[idx]
 
+        #print(f" Get {self.samples[idx]['image_path']}")
         # Load image
         image = Image.open(sample['image_path']).convert('RGB')
         image = np.array(image)  # (H, W, 3)
@@ -138,7 +139,7 @@ class ForgeryDataset(Dataset):
                 'iscrowd': torch.zeros((0,), dtype=torch.int64)
             }
 
-        return image, target
+        return image, target, self.samples[idx]['image_path'] # return filename too
 
     def mask_to_boxes(self, mask):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
