@@ -29,6 +29,9 @@ from wakepy import keep
 
 import json
 import os
+from skorch import NeuralNet
+from skorch.helper import predefined_split
+from sklearn.model_selection import GridSearchCV
 
 
 warnings.filterwarnings('ignore')
@@ -208,7 +211,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     patience = 2        # epochs to wait for improvement
     best_iou = 10000000.1
     epochs_no_improve = 0
-
+    early_stop = False
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
