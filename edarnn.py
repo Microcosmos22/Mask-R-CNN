@@ -57,7 +57,7 @@ full_dataset = ForgeryDataset(
 )
 
 
-#dataset = Subset(full_dataset, list(range(5e)))
+#full_dataset = Subset(full_dataset, list(range(500)))
 indices = list(range(len(full_dataset)))
 
 train_idx, val_idx = train_test_split(
@@ -202,7 +202,7 @@ if __name__ == "__main__":
 
 
     machinepath = "unet_overfit_model.pth"
-    num_epochs = 5
+    num_epochs = 1
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
