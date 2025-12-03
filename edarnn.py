@@ -1,6 +1,7 @@
 import cv2
 import json
 import torch
+import torch.nn
 import torchvision
 import numpy as np
 import pandas as pd
@@ -56,8 +57,8 @@ full_dataset = ForgeryDataset(
 )
 
 
-dataset = Subset(full_dataset, list(range(5)))
-indices = list(range(len(dataset)))
+#dataset = Subset(full_dataset, list(range(5e)))
+indices = list(range(len(full_dataset)))
 
 train_idx, val_idx = train_test_split(
     indices,
@@ -67,8 +68,8 @@ train_idx, val_idx = train_test_split(
 )
 
 
-train_subset = Subset(dataset, train_idx)
-val_subset = Subset(dataset, val_idx)
+train_subset = Subset(full_dataset, train_idx)
+val_subset = Subset(full_dataset, val_idx)
 
 
 feature_extractors = []
@@ -132,9 +133,10 @@ def train_epoch(model, dataloader, optimizer, device, criterion):
 
         # ensure shapes align
         outputs = outputs.squeeze(1)                 # (B,256,256)
+        bce_loss = criterion(outputs, masks)   # call the loss function on tensors
+        dice_loss = soft_dice(outputs, masks)  # your Dice loss
 
-        dice = soft_dice(outputs, masks)
-        loss = criterion(outputs, masks) + dice
+        loss = bce_loss + dice_loss
 
         loss.backward()
         optimizer.step()
@@ -156,8 +158,9 @@ def validate_epoch(model, dataloader, device, criterion):
 
             outputs = model(images)
             outputs = outputs.squeeze(1)
+            dice = soft_dice(outputs, masks)
 
-            loss = criterion(outputs, masks)
+            loss = dice # criterion(outputs, masks)
             total_loss += loss.item()
 
     return total_loss / len(dataloader)
@@ -199,7 +202,7 @@ if __name__ == "__main__":
 
 
     machinepath = "unet_overfit_model.pth"
-    num_epochs = 30
+    num_epochs = 5
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
@@ -247,7 +250,7 @@ if __name__ == "__main__":
 
             plt.plot(train_loss)
             plt.plot(val_loss)
-            plt.savefig("last_training.png")
+            plt.savefig("last_training_overfit_UNETTTT.png")
             plt.show()
 
 
