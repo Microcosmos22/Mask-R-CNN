@@ -21,6 +21,7 @@ from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
 
 from dataloader import *
+from metrics import *
 
 from sklearn.model_selection import KFold
 import warnings
@@ -55,7 +56,7 @@ full_dataset = ForgeryDataset(
 )
 
 
-dataset = Subset(full_dataset, list(range(50)))
+dataset = Subset(full_dataset, list(range(5)))
 indices = list(range(len(dataset)))
 
 train_idx, val_idx = train_test_split(
@@ -66,203 +67,139 @@ train_idx, val_idx = train_test_split(
 )
 
 
-print("\nTRAIN FILES:")
-for idx in train_idx:
-    _, _, filename = dataset[idx]  # or whatever attribute stores filenames
-    print(filename)
-
 train_subset = Subset(dataset, train_idx)
 val_subset = Subset(dataset, val_idx)
 
 
 feature_extractors = []
 
-def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
-rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
-    if feat_ex == 0:
-        backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
-        in_ch = 576
-        backbone.out_channels = 256
-        out_ch = 256
-    elif feat_ex == 1:
-        backbone = torchvision.models.mobilenet_v3_large(pretrained=False).features
-        in_ch = 960
-        backbone.out_channels = 256
-        out_ch = 256
-    elif feat_ex == 2:
-        resnet = torchvision.models.resnet34(pretrained=False)
-        backbone = nn.Sequential(
-            resnet.conv1,
-            resnet.bn1,
-            resnet.relu,
-            resnet.maxpool,
-            resnet.layer1,
-            resnet.layer2,
-            resnet.layer3,
-            resnet.layer4,
+class DoubleConv(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.ReLU(inplace=True)
         )
-        in_ch = 512
-        backbone.out_channels = 512   # resnet3 4's final feature depth
-        out_ch = 512
 
-    # extracts characteristics from an image
-    backbone = nn.Sequential(
-        backbone,
-        nn.Conv2d(in_ch, out_ch, kernel_size=1),
-        nn.ReLU(inplace=True)
-    )
-    backbone.out_channels = out_ch
+    def forward(self, x):
+        return self.conv(x)
 
 
-    # Anchor generator
-    anchor_generator = AnchorGenerator(
-        sizes=((16, 32, 64, 128),),
-        aspect_ratios=((0.5, 1.0, 2.0),)
-    )
+class UNet(nn.Module):
+    def __init__(self, n_classes=1):
+        super().__init__()
 
-    # ROI pools
-    roi_pooler = torchvision.ops.MultiScaleRoIAlign(
-        featmap_names=['0'],
-        output_size=5,
-        sampling_ratio=samplR
-    )
+        self.down1 = DoubleConv(3, 64)
+        self.pool1 = nn.MaxPool2d(2)
 
-    mask_roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'], output_size=56, sampling_ratio=2)
-    #model = MaskRCNN(backbone, num_classes=2, mask_roi_pool=mask_roi_pool)
+        self.down2 = DoubleConv(64, 128)
+        self.pool2 = nn.MaxPool2d(2)
 
-    model = MaskRCNN(
-        backbone,
-        num_classes=num_classes,
-        rpn_anchor_generator=anchor_generator,
-        box_roi_pool=roi_pooler,
-        mask_roi_pool=mask_roi_pooler,
-        min_size=224,
-        max_size=224,
-        rpn_pre_nms_top_n_train=1000,
-        rpn_pre_nms_top_n_test=1000,
-        rpn_post_nms_top_n_train=200,
-        rpn_post_nms_top_n_test=200,
-        box_detections_per_img=100
-    )
+        self.down3 = DoubleConv(128, 256)
 
-    return model
+        self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
+        self.conv2 = DoubleConv(256, 128)
 
-def train_epoch(model, dataloader, optimizer, device):
+        self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
+        self.conv1 = DoubleConv(128, 64)
+
+        self.out = nn.Conv2d(64, n_classes, 1)
+        """ outputs logits """
+
+    def forward(self, x):
+        x1 = self.down1(x)
+        x2 = self.down2(self.pool1(x1))
+        x3 = self.down3(self.pool2(x2))
+
+        x = self.conv2(torch.cat([self.up2(x3), x2], dim=1))
+        x = self.conv1(torch.cat([self.up1(x), x1], dim=1))
+
+        return self.out(x)
+
+def train_epoch(model, dataloader, optimizer, device, criterion):
     model.train()
     total_loss = 0
 
-    for images, targets, _ in tqdm(dataloader, desc="Training"):
+    for images, masks in tqdm(dataloader, desc="Training"):
 
-        images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        images = torch.stack(images).to(device)      # (B,3,256,256)
+        masks  = torch.stack(masks).float().to(device)  # (B,256,256)
 
-        # Forward pass
-        loss_dict = model(images, targets)
-        losses = sum(loss for loss in loss_dict.values())
-        model.eval()  # temporarily switch to eval mode
-        with torch.no_grad():
-            preds = model([images[0]])
-            scores = preds[0]['scores']  # confidence scores for each box
-            boxes = preds[0]['boxes'][scores > 0.35]
-            print(boxes.shape)
-        model.train()  # switch back to training
-
-
-        # Backward pass
         optimizer.zero_grad()
-        losses.backward()
+        outputs = model(images)                      # (B,1,256,256)
+
+        # ensure shapes align
+        outputs = outputs.squeeze(1)                 # (B,256,256)
+
+        dice = soft_dice(outputs, masks)
+        loss = criterion(outputs, masks) + dice
+
+        loss.backward()
         optimizer.step()
 
-        total_loss += losses.item()
+        total_loss += loss.item()
 
     return total_loss / len(dataloader)
 
-def validate_epoch(model, dataloader, device):
-    model.train()  # For validation, we use train mode because of the features of Mask R-CNN
+
+
+def validate_epoch(model, dataloader, device, criterion):
+    model.eval()
     total_loss = 0
 
     with torch.no_grad():
-        for batch_idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Validation")):
-            images = [img.to(device) for img in images]
-            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        for images, masks in tqdm(dataloader, desc="Validation"):
+            images = torch.stack(images).to(device)
+            masks  = torch.stack(masks).float().to(device)
 
-            loss_dict = model(images, targets)
-            losses = sum(loss for loss in loss_dict.values())
-            total_loss += losses.item()
+            outputs = model(images)
+            outputs = outputs.squeeze(1)
+
+            loss = criterion(outputs, masks)
+            total_loss += loss.item()
 
     return total_loss / len(dataloader)
 
-def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
-rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
-    model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
-    rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
-    model.to(device)
-    print("\n")
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
+
+def train_parameters(train_loader, val_loader, machinepath, num_epochs, device, criterion, lr=0.001):
+    model = UNet()  # your UNet class
+    model.to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
-    train_losses = []
-    val_losses = []
-    # Early stopping parameters
-    patience = 2        # epochs to wait for improvement
-    best_iou = 10000000.1
-    epochs_no_improve = 0
-
+    train_losses, val_losses = [], []
 
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
-
-        """ Train, validate, evaluate """
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss = train_epoch(model, train_loader, optimizer, device, criterion)
         train_losses.append(train_loss)
 
         if val_loader is not None:
-            val_loss = validate_epoch(model, val_loader, device)
+            val_loss = validate_epoch(model, val_loader, device, criterion)
             val_losses.append(val_loss)
-            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
+            print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
         else:
+            print(f"Train Loss: {train_loss:.4f}")
             val_losses.append(0)
-            print(f"\nTrain Loss: {train_loss:.4f}")
 
+        scheduler.step()
+        torch.save(model.state_dict(), machinepath)
 
-        if eval_loader is not None:
-            iou, dice, props = evaluate_segmentation(model, eval_loader, device)
-
-            scheduler.step()
-
-            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
-            print(f"IoU: {np.mean(iou):.4f}, DICE: {np.mean(dice):.4f}")
-
-            best_iou = np.mean(iou)
-            best_dice = np.mean(dice)
-
-        if not early:
-            epochs_no_improve = 0
-            print("Saving model")
-            torch.save(model.state_dict(), machinepath)
-
-        if early:
-            if (np.mean(dice < best_dice)):
-                epochs_no_improve = 0
-                torch.save(model.state_dict(), machinepath)
-            else:
-                epochs_no_improve += 1
-                if epochs_no_improve >= patience:
-                    print(f"Early stopping triggered after {epoch+1} epochs.")
-                    early_stop = True
-                    break
-    if eval_loader is not None:
-        return model, best_iou, best_dice, train_loss, val_loss
-    else:
-        return model, train_losses, val_losses
+    return model, train_losses, val_losses
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
 
-    machinepath = "best_overfit_machine.pth"
-    num_epochs = 100
+
+    machinepath = "unet_overfit_model.pth"
+    num_epochs = 30
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
@@ -306,7 +243,7 @@ if __name__ == "__main__":
 
 
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_loss, val_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_loss, val_loss = train_parameters(train_loader, val_loader, machinepath, num_epochs, device, criterion)
 
             plt.plot(train_loss)
             plt.plot(val_loss)
