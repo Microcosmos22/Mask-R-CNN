@@ -98,49 +98,52 @@ test_dataset = ForgeryDataset(
 
 
 if __name__ == "__main__":
-    train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+    plot= False
 
-
-    for idx, (image, target) in enumerate(train_loader):
+    for idx, (image, target, filename) in enumerate(train_loader):
         """ skip authentic images """
         """if (len(target[0]['boxes']) == 0):
             continue"""
         # a loader with collate_fn returns batches of lists
         image = image[0]           # take first item from batch
         target = target[0]
-        raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
-
-        print("\n raw image shape: ")
-        print(raw_image.shape)
 
         with torch.no_grad():
             image = image.unsqueeze(0).to(device)
             outputs = model(image)   # must be list
+            image = image.squeeze(0).permute(1,2,0)
             """ Plot image, mask_pred and mask_true"""
             #full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
             # pred_mask is (H_net, W_net)
-            H_orig, W_orig, _ = raw_image.shape
 
+
+        outputs_orig_size = inv_transform(outputs, image)
+
+        pred = torch.from_numpy(outputs_orig_size.cpu().numpy()).float()
+        #true_mask = torch.from_numpy(target).float()
+
+        dice = soft_dice(pred, target)
+
+        print(f"\nIdx: {idx} Dice: {dice:.4f}")
+
+        if plot:
             fig, ax = plt.subplots(2)
-            ax[0].imshow(raw_image)
-            ax[0].imshow(raw_mask[0], alpha=0.5)
+            ax[0].imshow(image)
+            ax[0].imshow(target, alpha=0.5)
 
-            ax[1].imshow(outputs.squeeze(0).squeeze(0))
+            ax[1].imshow(outputs_orig_size.squeeze(0).squeeze(0))
             plt.show()
-
-        print(outputs.shape)
-        outputs_orig_size = inv_transform(outputs, raw_image)
-        iou = binary_iou(outputs_orig_size.cpu().numpy(), np.sum(raw_mask, axis = 0))
-        dice = binary_dice(outputs_orig_size.cpu().numpy(), np.sum(raw_mask, axis = 0))
-        print(f"\nMean IoU: {iou:.4f}, Mean Dice: {dice:.4f}")
 
 
 
         """ Convert to numpy and encode """
-        """submission = {
-            "case_id": files[int(idx*4)],
-            "submission": rle_encode([full_pred_mask_resized.numpy()])
-        }"""
+        #print(filename[0]['image_id'])
+        submission = {
+            "case_id": filename[0]['image_id'],
+            "submission": rle_encode([outputs_orig_size.numpy()])
+        }
+
+        #print(rle_encode([outputs_orig_size.numpy()]))
 
 
         #rle = rle_encode(full_pred_mask_resized.numpy())
