@@ -34,15 +34,29 @@ import cv2
 import os
 
 # Augmentation pipeline — choose meaningful transformations
-augment = A.Compose([
+train_transform = A.Compose([
+    # Geometric
     A.HorizontalFlip(p=0.5),
-    A.RandomRotate90(p=0.5),
-    A.RandomBrightnessContrast(p=0.5),
-    A.GaussianBlur(p=0.3),
-    A.ImageCompression(quality_lower=40, quality_upper=100, p=0.5),
+    A.VerticalFlip(p=0.3),
+    A.RandomRotate90(p=0.3),
+    A.Affine(
+        scale=(0.95, 1.05),
+        rotate=(-15, 15),          # mild rotation
+        translate_percent=(-0.02, 0.02),
+        fit_output=True,            # avoid cutting off image
+        p=0.7
+    ),
+    A.RandomCrop(width=224, height=224, p=0.3),  # forces network to learn partial views
 
-    A.Affine(scale=(0.95, 1.05), rotate=(-20, 20), translate_percent=(0.02, 0.02), p=0.7)
-# Add more if desired
+    # Photometric
+    A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+    A.HueSaturationValue(hue_shift_limit=10, sat_shift_limit=15, val_shift_limit=15, p=0.3),
+    A.GaussNoise(var_limit=(5.0, 20.0), p=0.3),
+
+    # Post-processing / compression
+    A.ImageCompression(quality_lower=40, quality_upper=100, p=0.3),
+
+    ToTensorV2()
 ])
 
 image_a = os.path.join(base_path, "train_images/authentic")
