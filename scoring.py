@@ -127,44 +127,53 @@ def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.
     return iou_scores, dice_scores, properties
 
 if __name__ == "__main__":
-    """ EVALUATE THE IOU AND DICE """
-    model = create_light_mask_rcnn()                 # create model
-    model.load_state_dict(torch.load("mask_rcnn_best.pth", map_location="cpu"))
-    model.eval()
-    model.to(device)
+    plot= False
 
-    base_path = "../recodai-luc-scientific-image-forgery-detection/"
-    test_dataset = ForgeryDataset(
-        None,
-        os.path.join(base_path, "supplemental_images"),
-        os.path.join(base_path, "supplemental_masks"),
-        transform=train_transform
-    )
-    test_dataset = Subset(train_subset, list(range(2)))
+    for idx, (image, target, filename) in enumerate(train_loader):
+        """ skip authentic images """
+        """if (len(target[0]['boxes']) == 0):
+            continue"""
+        # a loader with collate_fn returns batches of lists
+        image = image[0]           # take first item from batch
+        target = target[0]
 
-
-    # Creating dataloaders
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-    print(f"Train samples: {len(test_dataset)}")
+        with torch.no_grad():
+            image = image.unsqueeze(0).to(device)
+            outputs = model(image)   # must be list
+            image = image.squeeze(0).permute(1,2,0)
+            """ Plot image, mask_pred and mask_true"""
+            #full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
+            # pred_mask is (H_net, W_net)
 
 
-    iou, dice, props = evaluate_segmentation(model, test_loader, device)
+        outputs_orig_size = inv_transform(outputs, image)
 
-    mean_iou = np.mean(iou) if iou else 0.0
-    mean_dice = np.mean(dice) if dice else 0.0
+        pred = torch.from_numpy(outputs_orig_size.cpu().numpy()).float()
+        #true_mask = torch.from_numpy(target).float()
 
-    print(f"\nMean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
+        dice = soft_dice(pred, target)
 
-    sizes = props["Npixels"]
-    wn = props["WhiteNess"]
+        print(f"\nIdx: {idx} Dice: {dice:.4f}")
 
-    """
-    print(sizes)
-    plt.scatter(sizes, iou)
-    plt.scatter(sizes, dice)
-    plt.show()
+        if plot:
+            fig, ax = plt.subplots(2)
+            ax[0].imshow(image)
+            ax[0].imshow(target, alpha=0.5)
 
-    plt.scatter(wn, iou)
-    plt.scatter(wn, dice)
-    plt.show()"""
+            ax[1].imshow(outputs_orig_size.squeeze(0).squeeze(0))
+            plt.show()
+
+
+
+        """ Convert to numpy and encode """
+        #print(filename[0]['image_id'])
+        submission = {
+            "case_id": filename[0]['image_id'],
+            "submission": rle_encode([outputs_orig_size.numpy()])
+        }
+
+        #print(rle_encode([outputs_orig_size.numpy()]))
+
+
+        #rle = rle_encode(full_pred_mask_resized.numpy())
+        #print(f"rle encoded mask: {rle}")
