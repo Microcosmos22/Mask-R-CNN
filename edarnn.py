@@ -35,7 +35,7 @@ import os
 
 warnings.filterwarnings('ignore')
 
-batch = 1
+batch = 4
 # Checking GPU availability
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device
@@ -168,32 +168,40 @@ def validate_epoch(model, dataloader, device, criterion):
 
     return total_loss / len(dataloader)
 
-
-
 def train_parameters(train_loader, val_loader, machinepath, num_epochs, device, criterion, lr=0.001):
-    model = UNet()  # your UNet class
-    model.to(device)
+    model = UNet().to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
     train_losses, val_losses = [], []
 
+    best_val = float("inf")
+    patience = 2
+    wait = 0
+
     for epoch in range(num_epochs):
         print(f"Epoch {epoch+1}/{num_epochs}")
         train_loss = train_epoch(model, train_loader, optimizer, device, criterion)
         train_losses.append(train_loss)
 
-        if val_loader is not None:
-            val_loss = validate_epoch(model, val_loader, device, criterion)
-            val_losses.append(val_loss)
-            print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+        val_loss = validate_epoch(model, val_loader, device, criterion) if val_loader else 0
+        val_losses.append(val_loss)
+
+        print(f"Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
+
+        # early stopping
+        if val_loss < best_val:
+            best_val = val_loss
+            wait = 0
+            torch.save(model.state_dict(), machinepath)  # save best model
         else:
-            print(f"Train Loss: {train_loss:.4f}")
-            val_losses.append(0)
+            wait += 1
+            if wait >= patience:
+                print("Early stopping triggered.")
+                break
 
         scheduler.step()
-        torch.save(model.state_dict(), machinepath)
 
     return model, train_losses, val_losses
 
@@ -205,7 +213,7 @@ if __name__ == "__main__":
 
 
     machinepath = "unet_overfit_model.pth"
-    num_epochs = 1
+    num_epochs = 30
     full_dataset = Subset(full_dataset, list(range(5)))
 
     feat_ex = [0]
