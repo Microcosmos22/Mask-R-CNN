@@ -36,7 +36,6 @@ def inv_transform(output_mask, image_shape):
     H_orig, W_orig: original image size
     """
 
-    print(len(image_shape.shape), len(image_shape), image_shape.shape)
 
     # Handle both orderings
     if len(image_shape.shape) == 3:
@@ -46,6 +45,8 @@ def inv_transform(output_mask, image_shape):
             H, W, C = image_shape.shape
     else:
         raise ValueError(f"Unexpected image_shape: {image_shape}")
+        print(len(image_shape.shape), len(image_shape), image_shape.shape)
+
 
     # Resize full mask to original image size
     full_mask_resized = F.interpolate(
