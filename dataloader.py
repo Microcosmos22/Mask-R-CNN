@@ -95,6 +95,16 @@ class ForgeryDataset(Dataset):
             image = F_transforms.to_tensor(image)
             mask = torch.tensor(mask, dtype=torch.uint8)
 
+        if len(mask.shape) == 2:
+            mask = mask.unsqueeze(0)
+
+        if image.shape[:2] != mask.shape[:2]:
+            #print(f"skipping {self.samples[idx]}")
+            print(f"Mismatch {self.samples[idx]}")
+            print(image.shape, mask.shape)
+
+
+
         return image, mask, self.samples[idx]  # only image and mask
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"

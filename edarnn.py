@@ -121,12 +121,55 @@ class UNet(nn.Module):
 
         return self.out(x)
 
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class FocalLoss(nn.Module):
+    """
+    Binary Focal Loss
+    """
+    def __init__(self, alpha=0.25, gamma=2.0, reduction='mean'):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        """
+        inputs: raw logits from model (B, H, W)
+        targets: ground truth masks (B, H, W), 0 or 1
+        """
+        # apply sigmoid to get probabilities
+        probs = torch.sigmoid(inputs)
+        targets = targets.float()
+
+        # focal loss formula
+        bce_loss = F.binary_cross_entropy(probs, targets, reduction='none')
+        pt = torch.where(targets == 1, probs, 1 - probs)
+        loss = self.alpha * (1 - pt) ** self.gamma * bce_loss
+
+        if self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        else:
+            return loss
+
+
+
 def train_epoch(model, dataloader, optimizer, device, criterion):
     model.train()
     total_loss = 0
 
     for images, masks, id in tqdm(dataloader, desc="Training"):
 
+
+        skip_batch = any(img.shape[1:] != mask.shape[-2:] for img, mask in zip(images, masks))
+        if skip_batch:
+            print(f"Skipping")
+
+            continue
         images = torch.stack(images).to(device)      # (B,3,256,256)
         masks  = torch.stack(masks).float().to(device)  # (B,256,256)
 
@@ -134,11 +177,11 @@ def train_epoch(model, dataloader, optimizer, device, criterion):
         outputs = model(images)                      # (B,1,256,256)
 
         # ensure shapes align
-        outputs = outputs.squeeze(1)                 # (B,256,256)
-        bce_loss = criterion(outputs, masks)   # call the loss function on tensors
-        dice_loss = soft_dice(outputs, masks)  # your Dice loss
+        outputs = outputs.squeeze(1)
+        if masks.dim() == 4 and masks.size(1) == 1:
+            masks = masks.squeeze(1)  # make shape [B,H,W] to match model output
 
-        loss = bce_loss + dice_loss
+        loss = criterion(outputs, masks)
 
         loss.backward()
         optimizer.step()
@@ -155,14 +198,23 @@ def validate_epoch(model, dataloader, device, criterion):
 
     with torch.no_grad():
         for images, masks, id in tqdm(dataloader, desc="Validation"):
+
+
+
+            skip_batch = any(img.shape[1:] != mask.shape[-2:] for img, mask in zip(images, masks))
+            if skip_batch:
+
+                continue
             images = torch.stack(images).to(device)
             masks  = torch.stack(masks).float().to(device)
 
             outputs = model(images)
             outputs = outputs.squeeze(1)
             dice = soft_dice(outputs, masks)
+            if masks.dim() == 4 and masks.size(1) == 1:
+                masks = masks.squeeze(1)  # make shape [B,H,W] to match model output
 
-            loss = criterion(outputs, masks) + soft_dice(outputs, masks)
+            loss = criterion(outputs, masks) #+ soft_dice(outputs, masks)
 
             total_loss += loss.item()
 
@@ -209,7 +261,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
+    criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
 
 
     machinepath = "unet_overfit_model.pth"
