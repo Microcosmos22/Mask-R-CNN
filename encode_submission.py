@@ -82,11 +82,72 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
     except ValueError as e:
         raise ParticipantVisibleError(str(e)) from e
 
+def predict_test_images(model, test_path, device):
+    submission = {
+        "case_id": [],
+        "submission": []
+    }
 
-model = UNet()
-state = torch.load("unet_overfit_model.pth", map_location="cpu")
-model.load_state_dict(state)
-model.eval()
+
+    model.eval()
+    predictions = {}
+
+    test_files = sorted(os.listdir(test_path))
+
+    transform = A.Compose([
+        A.Resize(256, 256),
+        A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ToTensorV2(),
+    ])
+
+    for file in tqdm(test_files, desc="Processing test images"):
+        case_id = file.split('.')[0]
+
+        # Load and preprocess image
+        img_path = os.path.join(test_path, file)
+        image = Image.open(img_path).convert('RGB')
+        image_np = np.array(image)
+
+        original_size = image_np.shape[:2]
+
+        # Apply transformations
+        transformed = transform(image=image_np)
+        image_tensor = transformed['image'].unsqueeze(0).to(device)
+
+        # Model prediction
+        with torch.no_grad():
+
+            outputs = model(image_tensor)   # must be list
+            image = image_tensor.squeeze(0).permute(1,2,0)
+            outputs = inv_transform(outputs, image)
+
+
+            """ If 3% forged -> forged"""
+            confidence_threshold = 0.03     # CHANGE THIS TO SEE RESULTS(changes)
+
+            if torch.sum(outputs) / outputs.numel() < 0.03:
+                # No detections -> authentic image
+                predictions[case_id] = "authentic"
+            else:
+                # Combine all detected masks
+
+                # RLE encoding
+                if torch.sum(outputs) == 0:
+                    predictions[case_id] = "authentic"
+                else:
+                    submission["case_id"].append(case_id)
+                    submission["submission"].append(rle_encode([outputs.numpy()]))
+
+
+    df = pd.DataFrame(submission)
+
+    # save as CSV
+    df.to_csv("submission.csv", index=False)
+
+    return predictions
+
+
+
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"
 test_dataset = ForgeryDataset(
@@ -98,53 +159,8 @@ test_dataset = ForgeryDataset(
 
 
 if __name__ == "__main__":
-    plot= False
+    model = UNet()
+    state = torch.load("unet_overfit_model.pth", map_location="cpu")
+    model.load_state_dict(state)
 
-    for idx, (image, target, filename) in enumerate(train_loader):
-        """ skip authentic images """
-        """if (len(target[0]['boxes']) == 0):
-            continue"""
-        # a loader with collate_fn returns batches of lists
-        image = image[0]           # take first item from batch
-        target = target[0]
-
-        with torch.no_grad():
-            image = image.unsqueeze(0).to(device)
-            outputs = model(image)   # must be list
-            image = image.squeeze(0).permute(1,2,0)
-            """ Plot image, mask_pred and mask_true"""
-            #full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
-            # pred_mask is (H_net, W_net)
-
-
-        outputs_orig_size = inv_transform(outputs, image)
-
-        pred = torch.from_numpy(outputs_orig_size.cpu().numpy()).float()
-        #true_mask = torch.from_numpy(target).float()
-
-        dice = soft_dice(pred, target)
-
-        print(f"\nIdx: {idx} Dice: {dice:.4f}")
-
-        if plot:
-            fig, ax = plt.subplots(2)
-            ax[0].imshow(image)
-            ax[0].imshow(target, alpha=0.5)
-
-            ax[1].imshow(outputs_orig_size.squeeze(0).squeeze(0))
-            plt.show()
-
-
-
-        """ Convert to numpy and encode """
-        #print(filename[0]['image_id'])
-        submission = {
-            "case_id": filename[0]['image_id'],
-            "submission": rle_encode([outputs_orig_size.numpy()])
-        }
-
-        #print(rle_encode([outputs_orig_size.numpy()]))
-
-
-        #rle = rle_encode(full_pred_mask_resized.numpy())
-        #print(f"rle encoded mask: {rle}")
+    predictions = predict_test_images(model, '../recodai-luc-scientific-image-forgery-detection/test_images', device)
