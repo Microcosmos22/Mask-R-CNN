@@ -127,9 +127,14 @@ def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.
     return iou_scores, dice_scores, properties
 
 if __name__ == "__main__":
-    plot= False
+    plot= True
+    model = UNet()
+    state = torch.load("unet_overfit_model_full.pth", map_location="cpu")
+    model.load_state_dict(state)
+    dices = []
 
-    for idx, (image, target, filename) in enumerate(train_loader):
+
+    for idx, (image, target, filename) in enumerate(eval_loader):
         """ skip authentic images """
         """if (len(target[0]['boxes']) == 0):
             continue"""
@@ -152,6 +157,7 @@ if __name__ == "__main__":
         #true_mask = torch.from_numpy(target).float()
 
         dice = soft_dice(pred, target)
+        dices.append(dice)
 
         print(f"\nIdx: {idx} Dice: {dice:.4f}")
 
@@ -159,21 +165,19 @@ if __name__ == "__main__":
             fig, ax = plt.subplots(2)
             ax[0].imshow(image)
             ax[0].imshow(target, alpha=0.5)
+            ax[0].set_title("Original Image and Mask")
+
+
 
             ax[1].imshow(outputs_orig_size.squeeze(0).squeeze(0))
+            ax[1].set_title("Model Prediction")
+
             plt.show()
 
-
-
-        """ Convert to numpy and encode """
-        #print(filename[0]['image_id'])
-        submission = {
-            "case_id": filename[0]['image_id'],
-            "submission": rle_encode([outputs_orig_size.numpy()])
-        }
 
         #print(rle_encode([outputs_orig_size.numpy()]))
 
 
         #rle = rle_encode(full_pred_mask_resized.numpy())
         #print(f"rle encoded mask: {rle}")
+    print(f" SCORE (DICE): {np.mean(dices)}")

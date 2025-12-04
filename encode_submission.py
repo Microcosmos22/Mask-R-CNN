@@ -160,7 +160,7 @@ test_dataset = ForgeryDataset(
 
 if __name__ == "__main__":
     model = UNet()
-    state = torch.load("unet_overfit_model.pth", map_location="cpu")
+    state = torch.load("unet_overfit_model_full.pth", map_location="cpu")
     model.load_state_dict(state)
 
     predictions = predict_test_images(model, '../recodai-luc-scientific-image-forgery-detection/test_images', device)
