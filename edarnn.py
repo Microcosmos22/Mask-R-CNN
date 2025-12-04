@@ -35,6 +35,7 @@ import os
 
 warnings.filterwarnings('ignore')
 
+batch = 1
 # Checking GPU availability
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device
@@ -47,15 +48,12 @@ test_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
 full_dataset = ForgeryDataset(
     paths['train_authentic'],
     paths['train_forged'],
     paths['train_masks'],
     transform=train_transform
 )
-
 
 #full_dataset = Subset(full_dataset, list(range(500)))
 indices = list(range(len(full_dataset)))
@@ -70,6 +68,10 @@ train_idx, val_idx = train_test_split(
 
 train_subset = Subset(full_dataset, train_idx)
 val_subset = Subset(full_dataset, val_idx)
+
+train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+eval_loader = DataLoader(test_dataset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 
 feature_extractors = []
@@ -123,7 +125,7 @@ def train_epoch(model, dataloader, optimizer, device, criterion):
     model.train()
     total_loss = 0
 
-    for images, masks in tqdm(dataloader, desc="Training"):
+    for images, masks, id in tqdm(dataloader, desc="Training"):
 
         images = torch.stack(images).to(device)      # (B,3,256,256)
         masks  = torch.stack(masks).float().to(device)  # (B,256,256)
@@ -152,7 +154,7 @@ def validate_epoch(model, dataloader, device, criterion):
     total_loss = 0
 
     with torch.no_grad():
-        for images, masks in tqdm(dataloader, desc="Validation"):
+        for images, masks, id in tqdm(dataloader, desc="Validation"):
             images = torch.stack(images).to(device)
             masks  = torch.stack(masks).float().to(device)
 
@@ -160,7 +162,8 @@ def validate_epoch(model, dataloader, device, criterion):
             outputs = outputs.squeeze(1)
             dice = soft_dice(outputs, masks)
 
-            loss = dice # criterion(outputs, masks)
+            loss = criterion(outputs, masks) + soft_dice(outputs, masks)
+
             total_loss += loss.item()
 
     return total_loss / len(dataloader)
@@ -203,7 +206,6 @@ if __name__ == "__main__":
 
     machinepath = "unet_overfit_model.pth"
     num_epochs = 1
-    batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
     feat_ex = [0]
@@ -240,9 +242,6 @@ if __name__ == "__main__":
             # optionally set transforms
             val_subset.dataset.transform = val_transform
 
-            train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            eval_loader = DataLoader(eval_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
