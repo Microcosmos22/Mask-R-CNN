@@ -19,64 +19,38 @@ from torchvision.models.detection import MaskRCNN
 from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
-
 class ForgeryDataset(Dataset):
     def __init__(self, authentic_path, forged_path, masks_path, transform=None, is_train=True):
         self.transform = transform
         self.is_train = is_train
-
-        # Collect all data samples
         self.samples = []
+        self.bad_samples = 0     # counter
 
-        # Forged images
         for file in os.listdir(forged_path):
             img_path = os.path.join(forged_path, file)
             base_name = file.split('.')[0]
             mask_path = os.path.join(masks_path, f"{base_name}.npy")
+            self.samples.append({'image_path': img_path, 'mask_path': mask_path, 'is_forged': True, 'image_id': base_name})
 
-            self.samples.append({
-                'image_path': img_path,
-                'mask_path': mask_path,
-                'is_forged': True,
-                'image_id': base_name
-            })
-
-        # Authentic images
-        if (authentic_path is not None):
+        if authentic_path is not None:
             for file in os.listdir(authentic_path):
                 img_path = os.path.join(authentic_path, file)
                 base_name = file.split('.')[0]
                 mask_path = os.path.join(masks_path, f"{base_name}.npy")
+                self.samples.append({'image_path': img_path, 'mask_path': mask_path, 'is_forged': False, 'image_id': base_name})
 
-                self.samples.append({
-                    'image_path': img_path,
-                    'mask_path': mask_path,
-                    'is_forged': False,
-                    'image_id': base_name
-                })
 
     def __len__(self):
         return len(self.samples)
 
-    def get_raw_img_mask(self, idx):
-        sample = self.samples[idx]
-        image_raw = Image.open(sample['image_path']).convert('RGB')
-        image_raw = np.array(image_raw)  # (H, W, 3)
-        mask = np.load(sample['mask_path'])
 
-        print(self.samples[idx]['image_path'])
-
-        return image_raw, mask
 
     def __getitem__(self, idx):
         sample = self.samples[idx]
 
-        # Load image
-        image = Image.open(sample['image_path']).convert('RGB')
-        image = np.array(image)  # (H, W, 3)
+        image = np.array(Image.open(sample['image_path']).convert('RGB'))
+        mask  = np.load(sample['mask_path'])
 
-        # Load mask
-        mask = np.load(sample['mask_path'])
         if mask.ndim == 3:
             if mask.shape[0] <= 10:
                 mask = np.any(mask, axis=0)
@@ -84,28 +58,30 @@ class ForgeryDataset(Dataset):
                 mask = np.any(mask, axis=-1)
             else:
                 raise ValueError(f"Ambiguous 3D mask shape: {mask.shape}")
+
         mask = (mask > 0).astype(np.uint8)
 
-        # Apply transforms
+        # skip faulty shapes BEFORE transform
+        if image.shape[:2] != mask.shape[:2]:
+            self.bad_samples += 1
+            return None
+
         if self.transform:
             transformed = self.transform(image=image, mask=mask)
             image = transformed['image']
-            mask = transformed['mask']
+            mask  = transformed['mask']
         else:
             image = F_transforms.to_tensor(image)
-            mask = torch.tensor(mask, dtype=torch.uint8)
+            mask  = torch.tensor(mask, dtype=torch.uint8)
 
         if len(mask.shape) == 2:
             mask = mask.unsqueeze(0)
 
-        if image.shape[:2] != mask.shape[:2]:
-            #print(f"skipping {self.samples[idx]}")
-            print(f"Mismatch {self.samples[idx]}")
-            print(image.shape, mask.shape)
+        return image, mask, sample
+def collate_skip_none(batch):
+    batch = [b for b in batch if b is not None]
+    return list(zip(*batch))
 
-
-
-        return image, mask, self.samples[idx]  # only image and mask
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"
 paths = {

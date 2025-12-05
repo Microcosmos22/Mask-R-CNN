@@ -55,7 +55,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-#full_dataset = Subset(full_dataset, list(range(500)))
+full_dataset = Subset(full_dataset, list(range(8500)))
 indices = list(range(len(full_dataset)))
 
 train_idx, val_idx = train_test_split(
@@ -69,9 +69,12 @@ train_idx, val_idx = train_test_split(
 train_subset = Subset(full_dataset, train_idx)
 val_subset = Subset(full_dataset, val_idx)
 
-train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-eval_loader = DataLoader(test_dataset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=4, shuffle=True,
+                          collate_fn=collate_skip_none)
+
+
+val_loader = DataLoader(val_subset, batch_size=batch, shuffle=True, collate_fn=collate_skip_none)
+eval_loader = DataLoader(test_dataset, batch_size=batch, shuffle=True, collate_fn=collate_skip_none)
 
 
 feature_extractors = []
@@ -90,10 +93,32 @@ class DoubleConv(nn.Module):
         return self.conv(x)
 
 
-class UNet(nn.Module):
+class AttentionGate(nn.Module):
+    def __init__(self, in_ch, gating_ch):
+        super().__init__()
+        self.Wx = nn.Conv2d(in_ch, in_ch, 1)
+        self.Wg = nn.Conv2d(gating_ch, in_ch, 1)
+        self.psi = nn.Sequential(
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_ch, 1, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x, g):
+        # Resize g to match x
+        if g.shape[-2:] != x.shape[-2:]:
+            g = nn.functional.interpolate(g, size=x.shape[-2:], mode="bilinear", align_corners=False)
+
+        att = self.psi(self.Wx(x) + self.Wg(g))
+        return x * att
+
+
+
+class UNet_Attention(nn.Module):
     def __init__(self, n_classes=1):
         super().__init__()
 
+        # Encoder
         self.down1 = DoubleConv(3, 64)
         self.pool1 = nn.MaxPool2d(2)
 
@@ -102,25 +127,38 @@ class UNet(nn.Module):
 
         self.down3 = DoubleConv(128, 256)
 
+        # Attention gates for skip connections
+        self.att2 = AttentionGate(128, 256)
+        self.att1 = AttentionGate(64, 128)
+
+        # Decoder
         self.up2 = nn.ConvTranspose2d(256, 128, 2, stride=2)
         self.conv2 = DoubleConv(256, 128)
 
         self.up1 = nn.ConvTranspose2d(128, 64, 2, stride=2)
         self.conv1 = DoubleConv(128, 64)
 
+        # Output layer (logits)
         self.out = nn.Conv2d(64, n_classes, 1)
-        """ outputs logits """
 
     def forward(self, x):
-        x1 = self.down1(x)
-        x2 = self.down2(self.pool1(x1))
-        x3 = self.down3(self.pool2(x2))
+        # Encoder
+        x1 = self.down1(x)               # 64
+        x2 = self.down2(self.pool1(x1))  # 128
+        x3 = self.down3(self.pool2(x2))  # 256 (bottleneck)
 
-        x = self.conv2(torch.cat([self.up2(x3), x2], dim=1))
-        x = self.conv1(torch.cat([self.up1(x), x1], dim=1))
+        # Decoder
+        # Stage 1 upsample + attention
+        g2 = self.up2(x3)
+        x2_att = self.att2(x2, x3)
+        x = self.conv2(torch.cat([g2, x2_att], dim=1))
+
+        # Stage 2 upsample + attention
+        g1 = self.up1(x)
+        x1_att = self.att1(x1, x)
+        x = self.conv1(torch.cat([g1, x1_att], dim=1))
 
         return self.out(x)
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -221,7 +259,7 @@ def validate_epoch(model, dataloader, device, criterion):
     return total_loss / len(dataloader)
 
 def train_parameters(train_loader, val_loader, machinepath, num_epochs, device, criterion, lr=0.001):
-    model = UNet().to(device)
+    model = UNet_Attention().to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
@@ -229,7 +267,7 @@ def train_parameters(train_loader, val_loader, machinepath, num_epochs, device, 
     train_losses, val_losses = [], []
 
     best_val = float("inf")
-    patience = 2
+    patience = 4
     wait = 0
 
     for epoch in range(num_epochs):
@@ -265,8 +303,8 @@ if __name__ == "__main__":
 
 
     machinepath = "unet_overfit_model.pth"
-    num_epochs = 30
-    full_dataset = Subset(full_dataset, list(range(5)))
+    num_epochs = 3
+    #full_dataset = Subset(full_dataset, list(range(5)))
 
     feat_ex = [0]
     lr = [0.001]
@@ -294,15 +332,8 @@ if __name__ == "__main__":
     with keep.running():
 
         for combo in all_combinations:
-
-            eval_subset = torch.utils.data.Subset(train_subset, [0])
-
-            print(len(train_subset), len(eval_subset))
-
             # optionally set transforms
             val_subset.dataset.transform = val_transform
-
-
 
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_loss, val_loss = train_parameters(train_loader, val_loader, machinepath, num_epochs, device, criterion)
