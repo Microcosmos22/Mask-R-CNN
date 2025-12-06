@@ -19,6 +19,59 @@ from torchvision.models.detection import MaskRCNN
 from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
+def full_mask_from_instance_masks(output, image_info):
+    """
+    output: dict from MaskRCNN
+    image_info: torch tensor (C,H,W) or numpy array (H,W,C) or tuple shape
+    """
+
+    # --- extract numeric dims safely ---
+    if hasattr(image_info, "shape"):                 # tensor or numpy array
+        shape = list(image_info.shape)
+    elif isinstance(image_info, (tuple, list)):      # raw tuple passed
+        shape = list(image_info)
+    else:
+        raise ValueError(f"Unsupported image_info type: {type(image_info)}")
+
+    assert len(shape) == 3, f"Unexpected image shape: {shape}"
+
+    # detect channel-first vs channel-last
+    if shape[0] in (1, 3):  # (C,H,W)
+        C, H, W = shape
+    else:                   # (H,W,C)
+        H, W, C = shape
+
+    full_mask = torch.zeros((H, W), dtype=torch.uint8)
+
+    boxes = output["boxes"]
+    masks = output["masks"]
+
+    for box, mask in zip(boxes, masks):
+
+        # convert box to ints correctly
+        x1, y1, x2, y2 = [int(v.item()) for v in box]
+
+        if x2 <= x1 or y2 <= y1 or x1 < 0 or y1 < 0 or x2 > W or y2 > H:
+            continue
+
+        # ensure mask -> (1,1,h,w)
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.ndim == 3:
+            mask = mask.unsqueeze(0)
+
+        mask_resized = F.interpolate(
+            mask.float(),
+            size=(y2 - y1, x2 - x1),
+            mode="bilinear",
+            align_corners=False
+        )[0, 0]
+
+        full_mask[y1:y2, x1:x2] = (mask_resized > 0.5).byte()
+
+    return full_mask
+
+
 
 class ForgeryDataset(Dataset):
     def __init__(self, authentic_path, forged_path, masks_path, transform=None, is_train=True):
@@ -198,7 +251,7 @@ paths = {
 
 # Transformations for learning
 train_transform = A.Compose([
-    A.Resize(512, 512),
+    A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
 
     A.HorizontalFlip(p=0.5),
     A.VerticalFlip(p=0.5),
@@ -208,7 +261,7 @@ train_transform = A.Compose([
 ])
 
 val_transform = A.Compose([
-    A.Resize(512, 512),
+    A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ToTensorV2(),
 ])

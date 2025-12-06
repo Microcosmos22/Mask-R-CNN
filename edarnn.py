@@ -58,7 +58,7 @@ full_dataset = ForgeryDataset(
 )
 
 
-dataset = Subset(full_dataset, list(range(50)))
+dataset = Subset(full_dataset, list(range(200)))
 indices = list(range(len(dataset)))
 
 train_idx, val_idx = train_test_split(
@@ -148,6 +148,10 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         box_detections_per_img=100
     )
 
+    for p in model.roi_heads.mask_predictor.parameters():
+        p.requires_grad = False
+
+
     return model
 
 def train_epoch(model, dataloader, optimizer, device):
@@ -156,8 +160,23 @@ def train_epoch(model, dataloader, optimizer, device):
 
     for images, targets, _ in tqdm(dataloader, desc="Training"):
 
+
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        for t in targets:
+            if len(t["boxes"]) == 4:
+
+                t['masks'] = t['masks'].float()
+                #print("mask dtype:", t['masks'].dtype)
+                #print("mask shape:", t['masks'].shape)
+                #print("unique values:", torch.unique(t['masks']))
+                """ manipulate image, paint all submasks in white for training """
+                #h, w = t["boxes"][3] - t["boxes"][1], t["boxes"][2] - t["boxes"][0]
+                #t["masks"] = torch.ones_like(t["masks"])  # force full masks
+                #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+
+                #plt.imshow(full_mask)
+                #plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
@@ -167,9 +186,10 @@ def train_epoch(model, dataloader, optimizer, device):
             preds = model([images[0]])
             scores = preds[0]['scores']  # confidence scores for each box
             #print(boxes.shape)
-            print(np.std(scores.numpy()))
         model.train()  # switch back to training
 
+        print(loss_dict)
+        print(loss_dict['loss_mask'].item())
 
         # Backward pass
         optimizer.zero_grad()
@@ -208,8 +228,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     train_losses = []
     val_losses = []
     # Early stopping parameters
-    patience = 2        # epochs to wait for improvement
-    best_iou = 10000000.1
+    patience = 4        # epochs to wait for improvement
+    best_val = 10000000.1
     epochs_no_improve = 0
     early_stop = False
 
@@ -246,7 +266,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
             torch.save(model.state_dict(), machinepath)
 
         if early:
-            if (np.mean(dice < best_dice)):
+            if (best_val > val_loss):
+                best_val = val_loss
                 epochs_no_improve = 0
                 torch.save(model.state_dict(), machinepath)
             else:
@@ -265,9 +286,8 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "best_overfit_machine.pth"
-    num_epochs = 10
-    batch = 1
-    full_dataset = Subset(full_dataset, list(range(5)))
+    num_epochs = 50
+    batch = 4
 
     feat_ex = [0]
     lr = [0.001]
