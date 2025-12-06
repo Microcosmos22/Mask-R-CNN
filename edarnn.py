@@ -139,8 +139,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         rpn_anchor_generator=anchor_generator,
         box_roi_pool=roi_pooler,
         mask_roi_pool=mask_roi_pooler,
-        min_size=224,
-        max_size=224,
+        min_size=512,
+        max_size=512,
         rpn_pre_nms_top_n_train=1000,
         rpn_pre_nms_top_n_test=1000,
         rpn_post_nms_top_n_train=200,
@@ -166,8 +166,8 @@ def train_epoch(model, dataloader, optimizer, device):
         with torch.no_grad():
             preds = model([images[0]])
             scores = preds[0]['scores']  # confidence scores for each box
-            boxes = preds[0]['boxes'][scores > 0.35]
-            print(boxes.shape)
+            #print(boxes.shape)
+            print(np.std(scores.numpy()))
         model.train()  # switch back to training
 
 
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "best_overfit_machine.pth"
-    num_epochs = 100
+    num_epochs = 10
     batch = 1
     full_dataset = Subset(full_dataset, list(range(5)))
 
@@ -292,6 +292,7 @@ if __name__ == "__main__":
 
     np.save(f"losses.npy", np.asarray([1,2,3,4]))
 
+
     with keep.running():
 
         for combo in all_combinations:
@@ -308,6 +309,9 @@ if __name__ == "__main__":
             eval_loader = DataLoader(eval_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 
+
+            for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
+                print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_loss, val_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
