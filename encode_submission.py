@@ -83,7 +83,7 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
         raise ParticipantVisibleError(str(e)) from e
 
 
-model = UNet()
+model = UNet_Attention().to(device)
 state = torch.load("unet_overfit_model.pth", map_location="cpu")
 model.load_state_dict(state)
 model.eval()
@@ -98,7 +98,7 @@ test_dataset = ForgeryDataset(
 
 
 if __name__ == "__main__":
-    plot= False
+    plot= True
 
     for idx, (image, target, filename) in enumerate(train_loader):
         """ skip authentic images """
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         if plot:
             fig, ax = plt.subplots(2)
             ax[0].imshow(image)
-            ax[0].imshow(target, alpha=0.5)
+            ax[0].imshow(target.squeeze(0), alpha=0.5)
 
             ax[1].imshow(outputs_orig_size.squeeze(0).squeeze(0))
             plt.show()

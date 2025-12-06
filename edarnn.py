@@ -79,6 +79,33 @@ eval_loader = DataLoader(test_dataset, batch_size=batch, shuffle=True, collate_f
 
 feature_extractors = []
 
+import torch
+import torch.nn as nn
+
+class FocalTverskyLoss(nn.Module):
+    def __init__(self, alpha=0.7, beta=0.3, gamma=0.75, smooth=1e-6):
+        super().__init__()
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
+        self.smooth = smooth
+
+    def forward(self, preds, targets):
+
+        preds = torch.sigmoid(preds)
+
+        preds = preds.view(-1)
+        targets = targets.view(-1)
+
+        TP = (preds * targets).sum()
+        FP = ((1 - targets) * preds).sum()
+        FN = (targets * (1 - preds)).sum()
+
+        tversky = (TP + self.smooth) / (TP + self.alpha * FP + self.beta * FN + self.smooth)
+
+        return (1 - tversky) ** self.gamma
+
+
 class DoubleConv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super().__init__()
@@ -299,7 +326,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    criterion = FocalLoss(alpha = 0.25, gamma = 2.0)
+    criterion = FocalTverskyLoss()
 
 
     machinepath = "unet_overfit_model.pth"
