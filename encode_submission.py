@@ -84,7 +84,7 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
 
 
 model = create_light_mask_rcnn(feat_ex = 0)
-state = torch.load("best_overfit_machine.pth", map_location="cpu")
+state = torch.load("frozen_painted_200epoch_1img.pth", map_location="cpu")
 model.load_state_dict(state)
 model.eval()
 
