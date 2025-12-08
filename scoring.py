@@ -56,33 +56,44 @@ def plot_masks(true_mask, pred_mask, title_prefix="", save_path=None):
 
 import torch
 
-def soft_dice(pred_mask, target):
+def soft_dice(pred_mask, target, verbose=False):
     """
     Computes soft Dice score between predicted mask and ground truth.
 
     pred_mask: torch.Tensor, shape [H, W] or [1, H, W], float values in [0, 1]
     target: dict from Mask R-CNN containing 'masks': [N, H, W]
+    verbose: bool, print intermediate values
 
     Returns:
         dice: float
     """
-
     # Flatten prediction
     if pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
         pred_mask = pred_mask.squeeze(0)
     pred_flat = pred_mask.contiguous().view(-1)
 
     # Combine all instance masks into a single mask
-    true_mask = target['masks'].float()  # [N, H, W]
+    true_mask = target.float()  # [N, H, W]
+    if verbose:
+        print(f"Target masks shape: {true_mask.shape}, sum per mask: {true_mask.sum(dim=(1,2))}")
+
     full_true_mask = (true_mask.sum(dim=0) > 0).float()
     true_flat = full_true_mask.contiguous().view(-1)
+
+    if verbose:
+        print(f"Pred mask stats -> min: {pred_flat.min():.4f}, max: {pred_flat.max():.4f}, sum: {pred_flat.sum():.4f}")
+        print(f"Full true mask stats -> sum: {true_flat.sum():.4f}, unique values: {true_flat.unique()}")
 
     # Compute soft dice
     intersection = (pred_flat * true_flat).sum()
     denominator = pred_flat.sum() + true_flat.sum()
     dice = (2.0 * intersection + 1e-6) / (denominator + 1e-6)
 
+    if verbose:
+        print(f"Intersection: {intersection:.4f}, Denominator: {denominator:.4f}, Dice: {dice:.6f}")
+
     return dice.item()
+
 
 
 def binary_iou(pred_mask, true_mask, debug=False):

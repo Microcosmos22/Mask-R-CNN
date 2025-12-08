@@ -7,10 +7,13 @@ from numba import types
 import numpy.typing as npt
 import pandas as pd
 import scipy.optimize
+import torch
+import torch.nn.functional as F
 
 from edarnn import *
 from dataloader import *
 from scoring import *
+
 
 
 
@@ -84,31 +87,18 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
         return _rle_decode_jit(mask_rle, shape[0], shape[1]).reshape(shape, order='F')
     except ValueError as e:
         raise ParticipantVisibleError(str(e)) from e
-import torch
-import torch.nn.functional as F
 
-import torch
-import torch.nn.functional as F
 
-def resize_mask_to_image(output, target_image):
+def resize_mask(combined_mask, target_image):
     """
-    Resizes the predicted mask from a Mask R-CNN output to the original image size.
-
-    Args:
-        output (dict): Mask R-CNN output for a single image.
-            Must contain 'masks' key with shape (N, 1, H_pred, W_pred)
-        target_image (numpy.ndarray or torch.Tensor): Original image to match.
-            Shape: (H_img, W_img, C) or (C, H_img, W_img)
-
-    Returns:
-        torch.Tensor: Resized mask (H_img, W_img) with values between 0 and 1
+    Resizes a mask to match target_image size.
+    Accepts combined_mask of shape [1,H,W] or [1,1,H,W].
     """
-
-    masks = output['masks']  # (N, 1, H_pred, W_pred)
-
-    # Sum all instance masks into a single mask
-    combined_mask = masks.sum(dim=0, keepdim=True)  # (1, 1, H_pred, W_pred)
-    combined_mask = torch.clamp(combined_mask, 0, 1)  # ensure values 0/1
+    # Ensure mask has shape [N, C, H, W] for F.interpolate
+    if combined_mask.ndim == 3:
+        combined_mask = combined_mask.unsqueeze(0)  # -> [1, 1, H, W]
+    elif combined_mask.ndim != 4:
+        raise ValueError(f"Unexpected mask shape: {combined_mask.shape}")
 
     # Get target height and width
     if isinstance(target_image, torch.Tensor):
@@ -126,6 +116,15 @@ def resize_mask_to_image(output, target_image):
         mode='bilinear',
         align_corners=False
     )
+    return mask_resized
+
+
+def combine_resize_submasks(output, target_image):
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+    combined_mask = masks.sum(dim=0, keepdim=True)  # (1, 1, H_pred, W_pred)
+    combined_mask = torch.clamp(combined_mask, 0, 1)
+
+    mask_resized = resize_mask(combined_mask, target_image)
 
     return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
 
@@ -165,19 +164,14 @@ if __name__ == "__main__":
         image = image[0]    # take first item from batch
         target = target[0]
 
+
         with torch.no_grad():
-            image_batch = image.unsqueeze(0).to(device)  # move input to same device
-            outputs = model(image_batch)  # forward pass
+            outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            # Convert image for plotting
-            image_plot = image.permute(1, 2, 0).cpu().numpy()
+            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy())
+            target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy())
 
-            # Inverse transform to original size (if needed)
-            outputs_orig_size = resize_mask_to_image(outputs[0], image_plot)
-
-            # Compute dice score
-            pred = torch.from_numpy(outputs_orig_size.cpu().numpy()).float()
-            dice = soft_dice(pred, target)
+            dice = soft_dice(outputs_orig_size, target_orig_size, True)
             print(f"\nIdx: {idx} Dice: {dice:.4f}")
 
             if plot:
