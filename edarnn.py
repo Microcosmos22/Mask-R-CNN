@@ -29,8 +29,6 @@ from wakepy import keep
 
 import json
 import os
-from skorch import NeuralNet
-from skorch.helper import predefined_split
 from sklearn.model_selection import GridSearchCV
 
 
@@ -58,8 +56,8 @@ full_dataset = ForgeryDataset(
 )
 
 
-dataset = Subset(full_dataset, list(range(200)))
-indices = list(range(len(dataset)))
+full_dataset_subset = Subset(full_dataset, list(range(2)))
+indices = list(range(len(full_dataset_subset)))
 
 train_idx, val_idx = train_test_split(
     indices,
@@ -71,14 +69,27 @@ train_idx, val_idx = train_test_split(
 
 print("\nTRAIN FILES:")
 for idx in train_idx:
-    _, _, filename = dataset[idx]  # or whatever attribute stores filenames
+    filename = full_dataset.get_filename(idx)  # or whatever attribute stores filenames
     print(filename)
 
-train_subset = Subset(dataset, train_idx)
-val_subset = Subset(dataset, val_idx)
+train_subset = Subset(full_dataset_subset, train_idx)
+val_subset = Subset(full_dataset_subset, val_idx)
 
 
 feature_extractors = []
+
+
+eval_subset = torch.utils.data.Subset(train_subset, [0])
+
+print(len(train_subset), len(eval_subset))
+
+# optionally set transforms
+val_subset.dataset.transform = val_transform
+
+train_loader = DataLoader(train_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+eval_loader = DataLoader(eval_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
 
 def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
@@ -171,8 +182,8 @@ def train_epoch(model, dataloader, optimizer, device):
                 #print("mask shape:", t['masks'].shape)
                 #print("unique values:", torch.unique(t['masks']))
                 """ manipulate image, paint all submasks in white for training """
-                #h, w = t["boxes"][3] - t["boxes"][1], t["boxes"][2] - t["boxes"][0]
-                #t["masks"] = torch.ones_like(t["masks"])  # force full masks
+                h, w = t["boxes"][3] - t["boxes"][1], t["boxes"][2] - t["boxes"][0]
+                t["masks"] = torch.ones_like(t["masks"])  # force full masks
                 #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
 
                 #plt.imshow(full_mask)
@@ -188,9 +199,6 @@ def train_epoch(model, dataloader, optimizer, device):
             #print(boxes.shape)
         model.train()  # switch back to training
 
-        print(loss_dict)
-        print(loss_dict['loss_mask'].item())
-
         # Backward pass
         optimizer.zero_grad()
         losses.backward()
@@ -198,7 +206,8 @@ def train_epoch(model, dataloader, optimizer, device):
 
         total_loss += losses.item()
 
-    return total_loss / len(dataloader)
+    return total_loss / len(dataloader), loss_dict['loss_mask'].item(), loss_dict['loss_box_reg'], loss_dict['loss_classifier']
+
 
 def validate_epoch(model, dataloader, device):
     model.train()  # For validation, we use train mode because of the features of Mask R-CNN
@@ -214,6 +223,27 @@ def validate_epoch(model, dataloader, device):
             total_loss += losses.item()
 
     return total_loss / len(dataloader)
+import torch
+import os
+import time
+
+def save_model_safe(model, path, max_retries=5, delay=0.5):
+    """Save model safely on Windows, retrying if file is locked."""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(path):
+                os.remove(path)  # remove previous file
+            if isinstance(model, torch.nn.Module):
+                torch.save(model.state_dict(), path)
+            else:
+                torch.save(model, path)
+            print(f"Saved model to {path}")
+            return
+        except PermissionError:
+            print(f"File {path} is locked. Waiting {delay}s and retrying...")
+            time.sleep(delay)
+    raise PermissionError(f"Could not write to {path} after {max_retries} retries")
+
 
 def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
@@ -237,7 +267,12 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(f"Epoch {epoch+1}/{num_epochs}")
 
         """ Train, validate, evaluate """
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device)
+
+        print(f"loss_mask: {loss_mask}")
+        print(f"loss box regr: {loss_box_reg}")
+        print(f"loss classifier: {loss_classifier}")
+
         train_losses.append(train_loss)
 
         if val_loader is not None:
@@ -263,13 +298,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         if not early:
             epochs_no_improve = 0
             print("Saving model")
-            torch.save(model.state_dict(), machinepath)
+            save_model_safe(model, machinepath)
 
         if early:
             if (best_val > val_loss):
                 best_val = val_loss
                 epochs_no_improve = 0
-                torch.save(model.state_dict(), machinepath)
+                if os.path.exists(machinepath):
+                    os.remove(machinepath)   # safely remove old file
+                save_model_safe(model, machinepath)
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= patience:
@@ -285,9 +322,9 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "best_overfit_machine.pth"
+    machinepath = "frozen_painted_200epoch_1img.pth"
     num_epochs = 50
-    batch = 4
+    batch = 1
 
     feat_ex = [0]
     lr = [0.001]
@@ -316,19 +353,6 @@ if __name__ == "__main__":
     with keep.running():
 
         for combo in all_combinations:
-
-            eval_subset = torch.utils.data.Subset(train_subset, [0])
-
-            print(len(train_subset), len(eval_subset))
-
-            # optionally set transforms
-            val_subset.dataset.transform = val_transform
-
-            train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            eval_loader = DataLoader(eval_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-
 
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
