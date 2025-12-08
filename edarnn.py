@@ -257,6 +257,8 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epo
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
     model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+    if os.path.isfile(machinepath):
+        model.load_state_dict(torch.load(machinepath))
     model.to(device)
     print("\n")
 
