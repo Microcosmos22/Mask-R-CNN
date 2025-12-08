@@ -19,6 +19,8 @@ from torchvision.models.detection import MaskRCNN
 from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
+
+
 def full_mask_from_instance_masks(output, image_info):
     """
     output: dict from MaskRCNN
@@ -131,11 +133,12 @@ class ForgeryDataset(Dataset):
             "WhiteNess" : mask_whiteness
             }
 
-    def __getitem__(self, idx):
+    def get_filename(self, idx):
+        return self.samples[idx]
 
+    def __getitem__(self, idx):
         sample = self.samples[idx]
 
-        #print(f" Get {self.samples[idx]['image_path']}")
         # Load image
         image = Image.open(sample['image_path']).convert('RGB')
         image = np.array(image)  # (H, W, 3)
@@ -157,8 +160,11 @@ class ForgeryDataset(Dataset):
         else:
             mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
 
-        # Shape validation
-        assert image.shape[:2] == mask.shape, f"Shape mismatch: img {image.shape}, mask {mask.shape}"
+        # Resize mask to match image if needed
+        H_img, W_img = image.shape[:2]
+        if mask.shape != (H_img, W_img):
+            print(f"[WARN] pre-resizing mask {mask.shape} -> {(H_img, W_img)}")
+            mask = cv2.resize(mask.astype(np.uint8), (W_img, H_img), interpolation=cv2.INTER_NEAREST)
 
         # Apply transformations
         if self.transform:
@@ -192,7 +198,7 @@ class ForgeryDataset(Dataset):
                 'iscrowd': torch.zeros((0,), dtype=torch.int64)
             }
 
-        return image, target, self.samples[idx]['image_path'] # return filename too
+        return image, target, self.samples[idx]['image_path']  # return filename too
 
     def mask_to_boxes(self, mask):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
