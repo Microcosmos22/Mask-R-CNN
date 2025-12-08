@@ -160,8 +160,12 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         box_detections_per_img=100
     )
 
+    for p in model.roi_heads.mask_head.parameters():
+        p.requires_grad = False
+
     for p in model.roi_heads.mask_predictor.parameters():
         p.requires_grad = False
+    model.roi_heads.mask_on = False
 
 
     return model
@@ -176,19 +180,18 @@ def train_epoch(model, dataloader, optimizer, device):
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         for t in targets:
-            if len(t["boxes"]) == 4:
+            if len(t["boxes"]) > 0:
 
-                t['masks'] = t['masks'].float()
-                #print("mask dtype:", t['masks'].dtype)
-                #print("mask shape:", t['masks'].shape)
-                #print("unique values:", torch.unique(t['masks']))
-                """ manipulate image, paint all submasks in white for training """
-                h, w = t["boxes"][3] - t["boxes"][1], t["boxes"][2] - t["boxes"][0]
-                t["masks"] = torch.ones_like(t["masks"])  # force full masks
-                #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+                for box in t["boxes"]:
+                    x1, y1, x2, y2 = box
+                    h = y2 - y1
+                    w = x2 - x1
+                    # do your mask logic here
 
-                #plt.imshow(full_mask)
-                #plt.show()
+                    t["masks"] = torch.ones_like(t["masks"])  # force full masks
+        #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+        #plt.imshow(full_mask)
+        #plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
@@ -312,14 +315,14 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
     else:
-        return model, train_losses, val_losses
+        return model, train_losses, val_losses, loss_mask, loss_box_reg, loss_classifier
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
     machinepath = "frozen_painted_200epoch_1img.pth"
-    num_epochs = 50
+    num_epochs = 100
     batch = 1
 
     feat_ex = [0]
@@ -353,10 +356,14 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_loss, val_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, loss_mask, loss_box_reg, loss_classifier = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
-            plt.plot(train_loss)
-            plt.plot(val_loss)
+            plt.plot(train_losses, label="Train")
+            plt.plot(val_losses, label="Val")
+            plt.plot(loss_mask, label="Mask")
+            plt.plot(loss_box_reg, label=" Box regr.")
+            plt.plot(loss_classifier, label="Classifier")
+            plt.legend()
             plt.savefig("last_training.png")
             plt.show()
 
