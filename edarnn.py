@@ -328,7 +328,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "frozen_painted_200epoch_1img.pth"
+    machinepath = "200epoch_1img.pth"
     num_epochs = 200
     batch = 1
 
