@@ -134,7 +134,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
 model = create_light_mask_rcnn()
-state = torch.load("best_overfit_machine.pth", map_location=device)  # load directly to device
+state = torch.load("frozen_painted_200epoch_1img.pth", map_location=device)  # load directly to device
 model.load_state_dict(state)
 model.to(device)  # ensure model is on same device as inputs
 model.eval()
@@ -200,7 +200,9 @@ if __name__ == "__main__":
 
 
             # Prepare submission
+            """
             submission = {
                 "case_id": filename[0],
                 "submission": rle_encode([outputs_orig_size])
             }
+            """
