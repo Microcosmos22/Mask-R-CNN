@@ -143,22 +143,18 @@ model.eval()
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"
 
-test_dataset = ForgeryDataset(
-    paths['train_authentic'],
-    paths['train_forged'],
-    paths['train_masks'],
-)
+test_dataset = ForgeryDataset(paths['train_authentic'],paths['train_forged'],paths['train_masks'],)
 
-test_loader = torch.utils.data.DataLoader(
-    test_dataset,
-    batch_size=1,
-    shuffle=False,
-    collate_fn=lambda x: tuple(zip(*x))
-)
+test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
+
+
 
 if __name__ == "__main__":
+    train_loader = DataLoader(full_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
-    plot = False
+    plot = True
 
     for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
