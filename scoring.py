@@ -67,15 +67,19 @@ def soft_dice(pred_mask, target, verbose=False):
     Returns:
         dice: float
     """
+    if target.ndim == 2:   # single mask
+        true_mask = target.unsqueeze(0).cpu()  # [1, H, W]
+    else:
+        true_mask = target.float().cpu()       # [N, H, W]
+
+
     # Flatten prediction
     if pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
-        pred_mask = pred_mask.squeeze(0)
-    pred_flat = pred_mask.contiguous().view(-1)
+        pred_mask = pred_mask.squeeze(0).cpu()
+    pred_flat = pred_mask.contiguous().view(-1).cpu()
 
-    # Combine all instance masks into a single mask
-    true_mask = target.float()  # [N, H, W]
     if verbose:
-        print(f"Target masks shape: {true_mask.shape}, sum per mask: {true_mask.sum(dim=(1,2))}")
+        print(f"Target masks shape: {true_mask.shape}, sum per mask: {true_mask.sum()}")
 
     full_true_mask = (true_mask.sum(dim=0) > 0).float()
     true_flat = full_true_mask.contiguous().view(-1)

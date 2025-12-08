@@ -158,7 +158,7 @@ test_loader = torch.utils.data.DataLoader(
 
 if __name__ == "__main__":
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
-    plot = True
+    plot = False
 
     for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
@@ -170,6 +170,8 @@ if __name__ == "__main__":
 
             outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy())
             target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy())
+
+            print(outputs_orig_size.shape, target_orig_size.shape)
 
             dice = soft_dice(outputs_orig_size, target_orig_size, True)
             print(f"\nIdx: {idx} Dice: {dice:.4f}")
