@@ -259,6 +259,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
     if os.path.isfile(machinepath):
         model.load_state_dict(torch.load(machinepath))
+        print(" LOADING: "+machinepath)
     model.to(device)
     print("\n")
 
