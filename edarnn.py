@@ -55,7 +55,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(5)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -183,8 +183,8 @@ def train_epoch(model, dataloader, optimizer, device):
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         for t in targets:
+            """
             if len(t["boxes"]) > 0:
-
                 for box in t["boxes"]:
                     x1, y1, x2, y2 = box
                     h = y2 - y1
@@ -192,6 +192,7 @@ def train_epoch(model, dataloader, optimizer, device):
                     # do your mask logic here
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
+            """
         #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
         #plt.imshow(full_mask)
         #plt.show()
@@ -325,7 +326,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "frozen_painted_200epoch_1img.pth"
-    num_epochs = 100
+    num_epochs = 200
     batch = 1
 
     feat_ex = [0]
