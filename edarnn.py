@@ -278,7 +278,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         if val_loader is not None:
             val_loss = validate_epoch(model, val_loader, device)
             val_losses.append(val_loss)
-            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
+            print(f"\nLOSSES: Train: {train_loss:.4f}, Val: {val_losses[-1]:.4f}, Mask: {loss_mask:.4f}, Box regr. {loss_box_reg:.4f}, Classifier: {loss_classifier}")
         else:
             val_losses.append(0)
             print(f"\nTrain Loss: {train_loss:.4f}")
@@ -297,7 +297,6 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
         if not early:
             epochs_no_improve = 0
-            print("Saving model")
             save_model_safe(model, machinepath)
 
         if early:
