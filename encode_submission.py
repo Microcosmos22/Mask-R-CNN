@@ -1,5 +1,6 @@
 import json
-
+import torch
+import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from numba import types
@@ -10,6 +11,8 @@ import scipy.optimize
 from edarnn import *
 from dataloader import *
 from scoring import *
+
+
 
 
 
@@ -125,10 +128,6 @@ def resize_mask_to_image(output, target_image):
     )
 
     return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
-
-
-import torch
-import matplotlib.pyplot as plt
 
 # Make sure device is consistent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
