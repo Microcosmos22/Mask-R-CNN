@@ -55,22 +55,23 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-
-full_dataset_subset = Subset(full_dataset, list(range(2)))
-indices = list(range(len(full_dataset_subset)))
+full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
+subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
-    indices,
+    range(len(full_dataset_subset)),
     test_size=0.1,
     random_state=42,
     shuffle=True
 )
 
-
 print("\nTRAIN FILES:")
 for idx in train_idx:
-    filename = full_dataset.get_filename(idx)  # or whatever attribute stores filenames
-    print(filename)
+    orig_idx = subset_indices[idx]     # map subset index → original dataset index
+    filename = full_dataset.get_filename(orig_idx)
+    print(orig_idx, filename['image_id'])
+
+
 
 train_subset = Subset(full_dataset_subset, train_idx)
 val_subset = Subset(full_dataset_subset, val_idx)
