@@ -62,14 +62,14 @@ train_idx, val_idx = train_test_split(
     range(len(full_dataset_subset)),
     test_size=0.1,
     random_state=42,
-    shuffle=True
+    shuffle=False
 )
 
 print("\nTRAIN FILES:")
 for idx in train_idx:
     orig_idx = subset_indices[idx]     # map subset index → original dataset index
     filename = full_dataset.get_filename(orig_idx)
-    print(orig_idx+": ", filename['image_id']+".png")
+    print(str(orig_idx)+": ", filename['image_id']+".png")
 
 
 
