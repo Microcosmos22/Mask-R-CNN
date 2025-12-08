@@ -55,7 +55,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(5)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -131,7 +131,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
     # Anchor generator
     anchor_generator = AnchorGenerator(
-        sizes=((16, 32, 64, 128),),
+        sizes=((16, 32, 64, 128, 256),),
         aspect_ratios=((0.5, 1.0, 2.0),)
     )
 
@@ -160,13 +160,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         box_detections_per_img=100
     )
 
+    """
     for p in model.roi_heads.mask_head.parameters():
         p.requires_grad = False
 
     for p in model.roi_heads.mask_predictor.parameters():
         p.requires_grad = False
     model.roi_heads.mask_on = False
-    model.roi_heads.score_thresh = 0.01
+    """
+    model.roi_heads.score_thresh = 0.00
 
 
     return model

@@ -168,13 +168,13 @@ class ForgeryDataset(Dataset):
 
         # Apply transformations
         if self.transform:
-            print("Transforming: ", image.shape, image.dtype, image.min(), image.max())
+            #print("Transforming: ", image.shape, image.dtype, image.min(), image.max())
             transformed = self.transform(image=image, mask=mask)
 
 
             image = transformed['image']
             mask = transformed['mask']
-            print("Transformed: ", image.shape, image.dtype, image.min(), image.max())
+            #print("Transformed: ", image.shape, image.dtype, image.min(), image.max())
 
         else:
             image = F_transforms.to_tensor(image)
