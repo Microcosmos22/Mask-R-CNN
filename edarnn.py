@@ -69,7 +69,7 @@ print("\nTRAIN FILES:")
 for idx in train_idx:
     orig_idx = subset_indices[idx]     # map subset index → original dataset index
     filename = full_dataset.get_filename(orig_idx)
-    print(orig_idx, filename['image_id'])
+    print(orig_idx+": ", filename['image_id']+".png")
 
 
 
@@ -270,16 +270,12 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         """ Train, validate, evaluate """
         train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device)
 
-        print(f"loss_mask: {loss_mask}")
-        print(f"loss box regr: {loss_box_reg}")
-        print(f"loss classifier: {loss_classifier}")
-
         train_losses.append(train_loss)
 
         if val_loader is not None:
             val_loss = validate_epoch(model, val_loader, device)
             val_losses.append(val_loss)
-            print(f"\nLOSSES: Train: {train_loss:.4f}, Val: {val_losses[-1]:.4f}, Mask: {loss_mask:.4f}, Box regr. {loss_box_reg:.4f}, Classifier: {loss_classifier}")
+            print(f"\nLOSSES: Train: {train_loss:.4f}, Val: {val_losses[-1]:.4f}, Mask: {loss_mask:.4f}, Box regr. {loss_box_reg:.4f}, Classifier: {loss_classifier:.4f}")
         else:
             val_losses.append(0)
             print(f"\nTrain Loss: {train_loss:.4f}")
