@@ -54,6 +54,36 @@ def plot_masks(true_mask, pred_mask, title_prefix="", save_path=None):
     else:
         plt.show(block=True)  # keep window open in scripts
 
+import torch
+
+def soft_dice(pred_mask, target):
+    """
+    Computes soft Dice score between predicted mask and ground truth.
+
+    pred_mask: torch.Tensor, shape [H, W] or [1, H, W], float values in [0, 1]
+    target: dict from Mask R-CNN containing 'masks': [N, H, W]
+
+    Returns:
+        dice: float
+    """
+
+    # Flatten prediction
+    if pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+        pred_mask = pred_mask.squeeze(0)
+    pred_flat = pred_mask.contiguous().view(-1)
+
+    # Combine all instance masks into a single mask
+    true_mask = target['masks'].float()  # [N, H, W]
+    full_true_mask = (true_mask.sum(dim=0) > 0).float()
+    true_flat = full_true_mask.contiguous().view(-1)
+
+    # Compute soft dice
+    intersection = (pred_flat * true_flat).sum()
+    denominator = pred_flat.sum() + true_flat.sum()
+    dice = (2.0 * intersection + 1e-6) / (denominator + 1e-6)
+
+    return dice.item()
+
 
 def binary_iou(pred_mask, true_mask, debug=False):
     pred_mask = to_numpy(pred_mask)
