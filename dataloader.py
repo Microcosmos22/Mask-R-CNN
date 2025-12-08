@@ -84,7 +84,7 @@ class ForgeryDataset(Dataset):
         self.samples = []
 
         # Forged images
-        for file in os.listdir(forged_path):
+        for file in sorted(os.listdir(forged_path)):
             img_path = os.path.join(forged_path, file)
             base_name = file.split('.')[0]
             mask_path = os.path.join(masks_path, f"{base_name}.npy")
@@ -98,7 +98,7 @@ class ForgeryDataset(Dataset):
 
         # Authentic images
         if (authentic_path is not None):
-            for file in os.listdir(authentic_path):
+            for file in sorted(os.listdir(authentic_path)):
                 img_path = os.path.join(authentic_path, file)
                 base_name = file.split('.')[0]
                 mask_path = os.path.join(masks_path, f"{base_name}.npy")
