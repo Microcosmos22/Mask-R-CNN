@@ -133,7 +133,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
 model = create_light_mask_rcnn()
-state = torch.load("frozen_painted_200epoch_1img.pth", map_location=device)  # load directly to device
+state = torch.load("./data/200epoch_1img.pth", map_location=device)  # load directly to device
 print("Model weights: ")
 print(model.load_state_dict(state, strict=False))
 

@@ -328,8 +328,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/200epoch_1img.pth"
-    num_epochs = 100
+    machinepath = "./data/200epoch_10017.pth"
+    num_epochs = 30
     batch = 1
 
     feat_ex = [0]
@@ -365,14 +365,14 @@ if __name__ == "__main__":
             plt.plot(train_losses, label="Train")
             plt.plot(val_losses, label="Val")
             plt.plot(loss_mask, label="Mask")
-            plt.plot(loss_box_reg, label=" Box regr.")
-            plt.plot(loss_classifier, label="Classifier")
+            plt.plot(loss_box_reg.detach().numpy(), label=" Box regr.")
+            plt.plot(loss_classifier.detach().numpy(), label="Classifier")
             plt.legend()
-            plt.savefig("./last_training.png")
+            plt.savefig("./data/last_training.png")
             plt.show()
 
 
             print(" Saving losses.json")
             losses["params"].append(combo)
-            with open("losses.json", "w") as f:
+            with open("./data/losses.json", "w") as f:
                 json.dump(losses, f, indent=4)
