@@ -121,8 +121,15 @@ def resize_mask(combined_mask, target_image):
 
 def combine_resize_submasks(output, target_image):
     masks = output['masks']  # (N, 1, H_pred, W_pred)
-    combined_mask = masks.sum(dim=0, keepdim=True)  # (1, 1, H_pred, W_pred)
+
+    if masks.ndim == 4:
+        masks = masks.squeeze(1)
+
+    combined_mask = masks.sum(dim=0)               # (H, W)
     combined_mask = torch.clamp(combined_mask, 0, 1)
+
+    combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
+    print(f" Combining {len(masks)} masks and resizing to original")
 
     mask_resized = resize_mask(combined_mask, target_image)
 
@@ -164,8 +171,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy())
             target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy())
+            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy())
 
             print(outputs_orig_size.shape, target_orig_size.shape)
 
@@ -174,7 +181,6 @@ if __name__ == "__main__":
 
             if plot:
                 import matplotlib
-                matplotlib.use("TkAgg")  # force interactive backend
                 import matplotlib.pyplot as plt
 
                 fig, ax = plt.subplots(1, 2, figsize=(10,5))
@@ -186,7 +192,7 @@ if __name__ == "__main__":
                 image_plot = np.clip(image_denorm.permute(1,2,0).numpy(), 0, 1)
 
                 ax[0].imshow(image_plot)
-                ax[0].imshow(target['masks'][0].cpu().numpy(), alpha=0.5)
+                ax[0].imshow(target_orig_size.cpu().numpy(), alpha=0.5)
 
                 mask_plot = np.clip(outputs_orig_size.cpu().numpy(), 0, 1)
                 ax[1].imshow(mask_plot)
