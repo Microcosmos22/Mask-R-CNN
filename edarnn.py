@@ -331,7 +331,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "./data/200epoch_10017.pth"
-    num_epochs = 30
+    num_epochs = 200
     batch = 1
 
     feat_ex = [0]
