@@ -183,6 +183,7 @@ def train_epoch(model, dataloader, optimizer, device):
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         for t in targets:
+            print(f"yo {len(t['masks'])} masks in target")
             """
             if len(t["boxes"]) > 0:
                 for box in t["boxes"]:
@@ -324,14 +325,14 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
     else:
-        return model, train_losses, val_losses, rcnn_losses
+        return model, train_losses, val_losses, np.asarray(rcnn_losses)
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
     machinepath = "./data/200epoch_10017.pth"
-    num_epochs = 200
+    num_epochs = 20
     batch = 1
 
     feat_ex = [0]
@@ -366,9 +367,9 @@ if __name__ == "__main__":
 
             plt.plot(train_losses, label="Train")
             plt.plot(val_losses, label="Val")
-            plt.plot(rcnn_losses[:][0], label="Mask")
-            plt.plot(rcnn_losses[:][1], label=" Box regr.")
-            plt.plot(rcnn_losses[:][2], label="Classifier")
+            plt.plot(rcnn_losses[:,0], label="Mask")
+            plt.plot(rcnn_losses[:,1], label=" Box regr.")
+            plt.plot(rcnn_losses[:,2], label="Classifier")
             plt.legend()
             plt.savefig("./data/last_training.png")
             plt.show()
