@@ -268,6 +268,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
     train_losses = []
     val_losses = []
+    rcnn_losses = []
     # Early stopping parameters
     patience = 4        # epochs to wait for improvement
     best_val = 10000000.1
@@ -285,6 +286,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         if val_loader is not None:
             val_loss = validate_epoch(model, val_loader, device)
             val_losses.append(val_loss)
+            rcnn_losses.append([loss_mask, loss_box_reg.detach().numpy(), loss_classifier.detach().numpy()])
             print(f"\nLOSSES: Train: {train_loss:.4f}, Val: {val_losses[-1]:.4f}, Mask: {loss_mask:.4f}, Box regr. {loss_box_reg:.4f}, Classifier: {loss_classifier:.4f}")
         else:
             val_losses.append(0)
@@ -322,7 +324,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
     else:
-        return model, train_losses, val_losses, loss_mask, loss_box_reg, loss_classifier
+        return model, train_losses, val_losses, rcnn_losses
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
@@ -360,13 +362,13 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses, val_losses, loss_mask, loss_box_reg, loss_classifier = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
             plt.plot(train_losses, label="Train")
             plt.plot(val_losses, label="Val")
-            plt.plot(loss_mask, label="Mask")
-            plt.plot(loss_box_reg.detach().numpy(), label=" Box regr.")
-            plt.plot(loss_classifier.detach().numpy(), label="Classifier")
+            plt.plot(rcnn_losses[:,0], label="Mask")
+            plt.plot(rcnn_losses[:,1], label=" Box regr.")
+            plt.plot(rcnn_losses[:,2], label="Classifier")
             plt.legend()
             plt.savefig("./data/last_training.png")
             plt.show()
