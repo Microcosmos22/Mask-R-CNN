@@ -193,9 +193,9 @@ def train_epoch(model, dataloader, optimizer, device):
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
             """
-        full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
-        plt.imshow(full_mask)
-        plt.show()
+        #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+        #plt.imshow(full_mask)
+        #plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
@@ -328,8 +328,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "200epoch_1img.pth"
-    num_epochs = 200
+    machinepath = "./data/200epoch_1img.pth"
+    num_epochs = 100
     batch = 1
 
     feat_ex = [0]
@@ -353,9 +353,6 @@ if __name__ == "__main__":
     print(f"Total combinations: {len(all_combinations)}")
     print(all_combinations)
 
-    np.save(f"losses.npy", np.asarray([1,2,3,4]))
-
-
     with keep.running():
 
         for combo in all_combinations:
@@ -371,7 +368,7 @@ if __name__ == "__main__":
             plt.plot(loss_box_reg, label=" Box regr.")
             plt.plot(loss_classifier, label="Classifier")
             plt.legend()
-            plt.savefig("last_training.png")
+            plt.savefig("./last_training.png")
             plt.show()
 
 
