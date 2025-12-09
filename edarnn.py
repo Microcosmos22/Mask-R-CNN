@@ -193,9 +193,9 @@ def train_epoch(model, dataloader, optimizer, device):
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
             """
-        #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
-        #plt.imshow(full_mask)
-        #plt.show()
+        full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+        plt.imshow(full_mask)
+        plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
