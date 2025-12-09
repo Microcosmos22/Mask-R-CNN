@@ -366,9 +366,9 @@ if __name__ == "__main__":
 
             plt.plot(train_losses, label="Train")
             plt.plot(val_losses, label="Val")
-            plt.plot(rcnn_losses[:,0], label="Mask")
-            plt.plot(rcnn_losses[:,1], label=" Box regr.")
-            plt.plot(rcnn_losses[:,2], label="Classifier")
+            plt.plot(rcnn_losses[:][0], label="Mask")
+            plt.plot(rcnn_losses[:][1], label=" Box regr.")
+            plt.plot(rcnn_losses[:][2], label="Classifier")
             plt.legend()
             plt.savefig("./data/last_training.png")
             plt.show()
