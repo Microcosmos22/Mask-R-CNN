@@ -95,17 +95,17 @@ eval_loader = DataLoader(eval_subset, batch_size=4, shuffle=False, collate_fn=la
 def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
     if feat_ex == 0:
-        backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
+        backbone = torchvision.models.mobilenet_v3_small(pretrained=True).features
         in_ch = 576
         backbone.out_channels = 256
         out_ch = 256
     elif feat_ex == 1:
-        backbone = torchvision.models.mobilenet_v3_large(pretrained=False).features
+        backbone = torchvision.models.mobilenet_v3_large(pretrained=True).features
         in_ch = 960
         backbone.out_channels = 256
         out_ch = 256
     elif feat_ex == 2:
-        resnet = torchvision.models.resnet34(pretrained=False)
+        resnet = torchvision.models.resnet34(pretrained=True)
         backbone = nn.Sequential(
             resnet.conv1,
             resnet.bn1,
@@ -168,7 +168,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         p.requires_grad = False
     model.roi_heads.mask_on = False
     """
-    model.roi_heads.score_thresh = 0.0001
+    model.roi_heads.score_thresh = 0.000
 
 
     return model
