@@ -168,6 +168,9 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         p.requires_grad = False
     model.roi_heads.mask_on = False
     """
+    
+    for p in model.backbone.parameters():
+        p.requires_grad = False
     model.roi_heads.score_thresh = 0.000
 
 
