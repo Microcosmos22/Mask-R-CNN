@@ -335,7 +335,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "./data/200epoch_10017.pth"
-    num_epochs = 200
+    num_epochs = 500
     batch = 1
 
     feat_ex = [0]
@@ -368,11 +368,11 @@ if __name__ == "__main__":
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
-            plt.plot(train_losses, label="Train")
-            plt.plot(val_losses, label="Val")
-            plt.plot(rcnn_losses[:,0], label="Mask")
-            plt.plot(rcnn_losses[:,1], label=" Box regr.")
-            plt.plot(rcnn_losses[:,2], label="Classifier")
+            plt.plot(np.log(train_losses), label="Train")
+            plt.plot(np.log(val_losses), label="Val")
+            plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
+            plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
+            plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
             plt.legend()
             plt.savefig("./data/last_training.png")
             plt.show()
