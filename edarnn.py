@@ -168,7 +168,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         p.requires_grad = False
     model.roi_heads.mask_on = False
     """
-    
+
     for p in model.backbone.parameters():
         p.requires_grad = False
     model.roi_heads.score_thresh = 0.000
@@ -335,7 +335,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "./data/200epoch_10017.pth"
-    num_epochs = 1500
+    num_epochs = 200
     batch = 1
 
     feat_ex = [0]
