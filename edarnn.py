@@ -184,7 +184,7 @@ def train_epoch(model, dataloader, optimizer, device):
 
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-        for t in targets:
+        for idx, t in enumerate(targets):
             print(f"yo {len(t['masks'])} masks in target")
 
             if len(t["boxes"]) > 0:
@@ -195,7 +195,12 @@ def train_epoch(model, dataloader, optimizer, device):
                     # do your mask logic here
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
-            
+            target_orig_size = combine_resize_submasks(t, images[idx].permute(1, 2, 0).cpu().numpy(), input = 'target')
+
+
+            plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
+            plt.show()
+
         #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
         #plt.imshow(full_mask)
         #plt.show()

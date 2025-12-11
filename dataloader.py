@@ -21,58 +21,105 @@ from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
 
-def full_mask_from_instance_masks(output, image_info):
-    """
-    output: dict from MaskRCNN
-    image_info: torch tensor (C,H,W) or numpy array (H,W,C) or tuple shape
-    """
 
-    # --- extract numeric dims safely ---
-    if hasattr(image_info, "shape"):                 # tensor or numpy array
-        shape = list(image_info.shape)
-    elif isinstance(image_info, (tuple, list)):      # raw tuple passed
-        shape = list(image_info)
+
+def paint_boxes(output, combined_mask):
+    _, _, H, W = combined_mask.shape
+    scores = output['scores']
+    boxes = output['boxes']
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+
+    idx = scores.argsort(descending=True)
+
+    # Apply sorting
+    topscores = scores[idx]
+    topboxes = boxes[idx]
+
+    print(" Painting the 10 best scoring BBoxes")
+
+    for i in range(10):
+        #print(" score: " + str(topscores[i]))
+        #print(" box: " + str(topboxes[i, :2]))
+        x1, y1, x2, y2 = topboxes[i].int().tolist()
+
+        # Clamp to image size (safer)
+        x1 = max(0, min(x1, W-1))
+        x2 = max(0, min(x2, W-1))
+        y1 = max(0, min(y1, H-1))
+        y2 = max(0, min(y2, H-1))
+
+        # Paint a white rectangle border = value 1
+        combined_mask[:, :, y1:y2, x1] = 1
+        combined_mask[:, :, y1:y2, x2] = 1
+        combined_mask[:, :, y1, x1:x2] = 1
+        combined_mask[:, :, y2, x1:x2] = 1
+
+    return combined_mask
+
+
+def resize_mask(combined_mask, target_image):
+    """
+    Resizes a mask to match target_image size.
+    Accepts combined_mask of shape [1,H,W] or [1,1,H,W].
+    """
+    # Ensure mask has shape [N, C, H, W] for F.interpolate
+    if combined_mask.ndim == 3:
+        combined_mask = combined_mask.unsqueeze(0)  # -> [1, 1, H, W]
+    elif combined_mask.ndim != 4:
+        raise ValueError(f"Unexpected mask shape: {combined_mask.shape}")
+
+    # Get target height and width
+    if isinstance(target_image, torch.Tensor):
+        if target_image.ndim == 3:
+            H_img, W_img = target_image.shape[1], target_image.shape[2] if target_image.shape[0] in [1, 3] else target_image.shape[0], target_image.shape[1]
+        else:
+            raise ValueError(f"Unexpected target_image shape: {target_image.shape}")
+    else:  # assume numpy
+        H_img, W_img = target_image.shape[:2]
+
+    # Interpolate mask to target size
+    mask_resized = F.interpolate(
+        combined_mask.float(),
+        size=(H_img, W_img),
+        mode='bilinear',
+        align_corners=False
+    )
+    return mask_resized
+
+
+def combine_resize_submasks(output, target_image, input):
+
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+
+    if masks.ndim == 4:
+        masks = masks.squeeze(1)
+
+    combined_mask = masks.sum(dim=0)               # (H, W)
+    combined_mask = torch.clamp(combined_mask, 0, 1)
+    combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
+    print(f" Combining {len(masks)} masks and resizing to original")
+
+    if input == 'output':
+        combined_mask = paint_boxes(output, combined_mask)
     else:
-        raise ValueError(f"Unsupported image_info type: {type(image_info)}")
 
-    assert len(shape) == 3, f"Unexpected image shape: {shape}"
+        _, _, H, W = combined_mask.shape
+        for box in output['boxes']:
+            x1, y1, x2, y2 = box.int().tolist()
+            x1 = max(0, min(x1, W-1))
+            x2 = max(0, min(x2, W-1))
+            y1 = max(0, min(y1, H-1))
+            y2 = max(0, min(y2, H-1))
+            combined_mask[:, :, y1:y2, x1] = 1
+            combined_mask[:, :, y1:y2, x2] = 1
+            combined_mask[:, :, y1, x1:x2] = 1
+            combined_mask[:, :, y2, x1:x2] = 1
 
-    # detect channel-first vs channel-last
-    if shape[0] in (1, 3):  # (C,H,W)
-        C, H, W = shape
-    else:                   # (H,W,C)
-        H, W, C = shape
 
-    full_mask = torch.zeros((H, W), dtype=torch.uint8)
+    mask_resized = resize_mask(combined_mask, target_image)
 
-    boxes = output["boxes"]
-    masks = output["masks"]
 
-    for box, mask in zip(boxes, masks):
-
-        # convert box to ints correctly
-        x1, y1, x2, y2 = [int(v.item()) for v in box]
-
-        if x2 <= x1 or y2 <= y1 or x1 < 0 or y1 < 0 or x2 > W or y2 > H:
-            continue
-
-        # ensure mask -> (1,1,h,w)
-        if mask.ndim == 2:
-            mask = mask.unsqueeze(0).unsqueeze(0)
-        elif mask.ndim == 3:
-            mask = mask.unsqueeze(0)
-
-        mask_resized = F.interpolate(
-            mask.float(),
-            size=(y2 - y1, x2 - x1),
-            mode="bilinear",
-            align_corners=False
-        )[0, 0]
-
-        full_mask[y1:y2, x1:x2] = (mask_resized > 0.5).byte()
-
-    return full_mask
-
+    return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
 
 
 class ForgeryDataset(Dataset):
