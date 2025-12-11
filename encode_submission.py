@@ -124,13 +124,17 @@ def paint_boxes(output, combined_mask):
     _, _, H, W = combined_mask.shape
     scores = output['scores']
     boxes = output['boxes']
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+
     idx = scores.argsort(descending=True)
 
     # Apply sorting
     topscores = scores[idx]
     topboxes = boxes[idx]
 
-    for i in range(100):
+    print(" Painting the 10 best scoring BBoxes")
+
+    for i in range(10):
         #print(" score: " + str(topscores[i]))
         #print(" box: " + str(topboxes[i, :2]))
         x1, y1, x2, y2 = topboxes[i].int().tolist()
@@ -165,7 +169,7 @@ def combine_resize_submasks(output, target_image, input):
     if input == 'output':
         combined_mask = paint_boxes(output, combined_mask)
     else:
-        
+
         _, _, H, W = combined_mask.shape
         for box in output['boxes']:
             x1, y1, x2, y2 = box.int().tolist()

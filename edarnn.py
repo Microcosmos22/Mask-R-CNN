@@ -160,13 +160,13 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     )
 
 
-    for p in model.roi_heads.mask_head.parameters():
+    """for p in model.roi_heads.mask_head.parameters():
         p.requires_grad = False
 
     for p in model.roi_heads.mask_predictor.parameters():
         p.requires_grad = False
     model.roi_heads.mask_on = False
-
+    """
 
     for p in model.backbone.parameters():
         p.requires_grad = False
@@ -186,7 +186,7 @@ def train_epoch(model, dataloader, optimizer, device):
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
         for t in targets:
             print(f"yo {len(t['masks'])} masks in target")
-            """
+
             if len(t["boxes"]) > 0:
                 for box in t["boxes"]:
                     x1, y1, x2, y2 = box
@@ -195,7 +195,7 @@ def train_epoch(model, dataloader, optimizer, device):
                     # do your mask logic here
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
-            """
+            
         #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
         #plt.imshow(full_mask)
         #plt.show()
