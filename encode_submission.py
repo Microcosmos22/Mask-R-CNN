@@ -119,7 +119,39 @@ def resize_mask(combined_mask, target_image):
     return mask_resized
 
 
-def combine_resize_submasks(output, target_image):
+
+def paint_boxes(output, combined_mask):
+    _, _, H, W = combined_mask.shape
+    scores = output['scores']
+    boxes = output['boxes']
+    idx = scores.argsort(descending=True)
+
+    # Apply sorting
+    topscores = scores[idx]
+    topboxes = boxes[idx]
+
+    for i in range(100):
+        #print(" score: " + str(topscores[i]))
+        #print(" box: " + str(topboxes[i, :2]))
+        x1, y1, x2, y2 = topboxes[i].int().tolist()
+
+        # Clamp to image size (safer)
+        x1 = max(0, min(x1, W-1))
+        x2 = max(0, min(x2, W-1))
+        y1 = max(0, min(y1, H-1))
+        y2 = max(0, min(y2, H-1))
+
+        # Paint a white rectangle border = value 1
+        combined_mask[:, :, y1:y2, x1] = 1
+        combined_mask[:, :, y1:y2, x2] = 1
+        combined_mask[:, :, y1, x1:x2] = 1
+        combined_mask[:, :, y2, x1:x2] = 1
+
+    return combined_mask
+
+
+def combine_resize_submasks(output, target_image, input):
+
     masks = output['masks']  # (N, 1, H_pred, W_pred)
 
     if masks.ndim == 4:
@@ -127,11 +159,28 @@ def combine_resize_submasks(output, target_image):
 
     combined_mask = masks.sum(dim=0)               # (H, W)
     combined_mask = torch.clamp(combined_mask, 0, 1)
-
     combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
     print(f" Combining {len(masks)} masks and resizing to original")
 
+    if input == 'output':
+        combined_mask = paint_boxes(output, combined_mask)
+    else:
+        
+        _, _, H, W = combined_mask.shape
+        for box in output['boxes']:
+            x1, y1, x2, y2 = box.int().tolist()
+            x1 = max(0, min(x1, W-1))
+            x2 = max(0, min(x2, W-1))
+            y1 = max(0, min(y1, H-1))
+            y2 = max(0, min(y2, H-1))
+            combined_mask[:, :, y1:y2, x1] = 1
+            combined_mask[:, :, y1:y2, x2] = 1
+            combined_mask[:, :, y1, x1:x2] = 1
+            combined_mask[:, :, y2, x1:x2] = 1
+
+
     mask_resized = resize_mask(combined_mask, target_image)
+
 
     return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
 
@@ -171,8 +220,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy())
-            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy())
+            target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy(), input = 'target')
+            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy(), input = 'output')
 
             print(outputs_orig_size.shape, target_orig_size.shape)
 

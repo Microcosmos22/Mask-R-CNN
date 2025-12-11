@@ -22,7 +22,6 @@ from torch.utils.data import Subset
 
 from dataloader import *
 
-from sklearn.model_selection import KFold
 import warnings
 from itertools import product
 from wakepy import keep
