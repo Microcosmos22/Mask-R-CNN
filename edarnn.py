@@ -9,6 +9,9 @@ import albumentations as A
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
+import os
+import time
+
 from PIL import Image
 from tqdm import tqdm
 from collections import defaultdict
@@ -179,28 +182,43 @@ def train_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
 
-    for images, targets, _ in tqdm(dataloader, desc="Training"):
+    for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Training")):
 
 
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
+
         for idx, t in enumerate(targets):
             print(f"yo {len(t['masks'])} masks in target")
 
-            if len(t["boxes"]) > 0:
-                for box in t["boxes"]:
-                    x1, y1, x2, y2 = box
-                    h = y2 - y1
-                    w = x2 - x1
-                    # do your mask logic here
-                    print(f" MASK SHAPE: {t['masks'].shape}")
+            # raw_img is a numpy HxW(x3) array returned by get_raw_img_mask(idx)
+            H, W = raw_img.shape[:2]
 
-                    t["masks"] = torch.ones_like(t["masks"])  # force full masks
-            target_orig_size = combine_resize_submasks(t, images[idx].permute(1, 2, 0).cpu().numpy())
+            # ensure boxes are a tensor with shape (N,4)
+            boxes = t['boxes']
+            if boxes.ndim == 1:
+                boxes = boxes.unsqueeze(0)
 
+            N = len(t['boxes'])
+            target_masks = torch.zeros((N, 512, 512), dtype=torch.uint8)
 
-            #plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
-            #plt.show()
+            for i, box in enumerate(t["boxes"]):
+                x1, y1, x2, y2 = box.int()
+                target_masks[i, y1:y2, x1:x2] = 1
+
+            t["masks"] = target_masks
+
+            """"# debug: visualize the first instance mask BEFORE resizing/combining
+            plt.imshow(target_masks[0].cpu().numpy(), vmin=0, vmax=1)
+            plt.title(f"instance 0 mask (H={H},W={W})")
+            plt.show()
+
+            # now combine/resize (combine_resize_submasks should use nearest for masks)
+            target_orig_size = combine_resize_submasks(t, raw_img)
+            plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
+            plt.show()""""
+
 
         #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
         #plt.imshow(full_mask)
@@ -240,9 +258,6 @@ def validate_epoch(model, dataloader, device):
             total_loss += losses.item()
 
     return total_loss / len(dataloader)
-import torch
-import os
-import time
 
 def save_model_safe(model, path, max_retries=5, delay=0.5):
     """Save model safely on Windows, retrying if file is locked."""

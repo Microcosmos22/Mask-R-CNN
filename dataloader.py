@@ -81,8 +81,7 @@ def resize_mask(combined_mask, target_image):
     mask_resized = F.interpolate(
         combined_mask.float(),
         size=(H_img, W_img),
-        mode='bilinear',
-        align_corners=False
+        mode='nearest'
     )
     return mask_resized
 
@@ -121,9 +120,7 @@ def combine_resize_submasks(output, target_image):
     combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
     print(f" Combining {len(masks)} masks and resizing to original")
 
-
     mask_resized = resize_mask(combined_mask, target_image)
-
 
     return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
 
