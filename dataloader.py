@@ -20,6 +20,61 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
+
+def full_mask_from_instance_masks(output, image_info):
+    """
+    output: dict from MaskRCNN
+    image_info: torch tensor (C,H,W) or numpy array (H,W,C) or tuple shape
+    """
+
+    # --- extract numeric dims safely ---
+    if hasattr(image_info, "shape"):                 # tensor or numpy array
+        shape = list(image_info.shape)
+    elif isinstance(image_info, (tuple, list)):      # raw tuple passed
+        shape = list(image_info)
+    else:
+        raise ValueError(f"Unsupported image_info type: {type(image_info)}")
+
+    assert len(shape) == 3, f"Unexpected image shape: {shape}"
+
+    # detect channel-first vs channel-last
+    if shape[0] in (1, 3):  # (C,H,W)
+        C, H, W = shape
+    else:                   # (H,W,C)
+        H, W, C = shape
+
+    full_mask = torch.zeros((H, W), dtype=torch.uint8)
+
+    boxes = output["boxes"]
+    masks = output["masks"]
+
+    for box, mask in zip(boxes, masks):
+
+        # convert box to ints correctly
+        x1, y1, x2, y2 = [int(v.item()) for v in box]
+
+        if x2 <= x1 or y2 <= y1 or x1 < 0 or y1 < 0 or x2 > W or y2 > H:
+            continue
+
+        # ensure mask -> (1,1,h,w)
+        if mask.ndim == 2:
+            mask = mask.unsqueeze(0).unsqueeze(0)
+        elif mask.ndim == 3:
+            mask = mask.unsqueeze(0)
+
+        mask_resized = F.interpolate(
+            mask.float(),
+            size=(y2 - y1, x2 - x1),
+            mode="bilinear",
+            align_corners=False
+        )[0, 0]
+
+        full_mask[y1:y2, x1:x2] = (mask_resized > 0.5).byte()
+
+    return full_mask
+
+
+
 class ForgeryDataset(Dataset):
     def __init__(self, authentic_path, forged_path, masks_path, transform=None, is_train=True):
         self.transform = transform
@@ -29,7 +84,7 @@ class ForgeryDataset(Dataset):
         self.samples = []
 
         # Forged images
-        for file in os.listdir(forged_path):
+        for file in sorted(os.listdir(forged_path)):
             img_path = os.path.join(forged_path, file)
             base_name = file.split('.')[0]
             mask_path = os.path.join(masks_path, f"{base_name}.npy")
@@ -43,7 +98,7 @@ class ForgeryDataset(Dataset):
 
         # Authentic images
         if (authentic_path is not None):
-            for file in os.listdir(authentic_path):
+            for file in sorted(os.listdir(authentic_path)):
                 img_path = os.path.join(authentic_path, file)
                 base_name = file.split('.')[0]
                 mask_path = os.path.join(masks_path, f"{base_name}.npy")
@@ -78,11 +133,12 @@ class ForgeryDataset(Dataset):
             "WhiteNess" : mask_whiteness
             }
 
-    def __getitem__(self, idx):
+    def get_filename(self, idx):
+        return self.samples[idx]
 
+    def __getitem__(self, idx):
         sample = self.samples[idx]
 
-        #print(f" Get {self.samples[idx]['image_path']}")
         # Load image
         image = Image.open(sample['image_path']).convert('RGB')
         image = np.array(image)  # (H, W, 3)
@@ -104,14 +160,22 @@ class ForgeryDataset(Dataset):
         else:
             mask = np.zeros((image.shape[0], image.shape[1]), dtype=np.uint8)
 
-        # Shape validation
-        assert image.shape[:2] == mask.shape, f"Shape mismatch: img {image.shape}, mask {mask.shape}"
+        # Resize mask to match image if needed
+        H_img, W_img = image.shape[:2]
+        if mask.shape != (H_img, W_img):
+            print(f"[WARN] pre-resizing mask {mask.shape} -> {(H_img, W_img)}")
+            mask = cv2.resize(mask.astype(np.uint8), (W_img, H_img), interpolation=cv2.INTER_NEAREST)
 
         # Apply transformations
         if self.transform:
+            #print("Transforming: ", image.shape, image.dtype, image.min(), image.max())
             transformed = self.transform(image=image, mask=mask)
+
+
             image = transformed['image']
             mask = transformed['mask']
+            #print("Transformed: ", image.shape, image.dtype, image.min(), image.max())
+
         else:
             image = F_transforms.to_tensor(image)
             mask = torch.tensor(mask, dtype=torch.uint8)
@@ -139,7 +203,7 @@ class ForgeryDataset(Dataset):
                 'iscrowd': torch.zeros((0,), dtype=torch.int64)
             }
 
-        return image, target, self.samples[idx]['image_path'] # return filename too
+        return image, target, self.samples[idx]['image_path']  # return filename too
 
     def mask_to_boxes(self, mask):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
@@ -198,16 +262,17 @@ paths = {
 
 # Transformations for learning
 train_transform = A.Compose([
-    A.Resize(256, 256),
-    A.HorizontalFlip(p=0.5),
-    A.VerticalFlip(p=0.5),
-    A.RandomRotate90(p=0.5),
+    A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
+
+    #A.HorizontalFlip(p=0.5),
+    #A.VerticalFlip(p=0.5),
+    #A.RandomRotate90(p=0.5),
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ToTensorV2(),
 ])
 
 val_transform = A.Compose([
-    A.Resize(256, 256),
+    A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ToTensorV2(),
 ])

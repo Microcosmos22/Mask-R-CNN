@@ -1,15 +1,21 @@
 import json
-
+import torch
+import matplotlib.pyplot as plt
 import numba
 import numpy as np
 from numba import types
 import numpy.typing as npt
 import pandas as pd
 import scipy.optimize
+import torch
+import torch.nn.functional as F
 
 from edarnn import *
-from dataset import *
+from dataloader import *
 from scoring import *
+
+
+
 
 
 
@@ -83,63 +89,174 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
         raise ParticipantVisibleError(str(e)) from e
 
 
-model = create_light_mask_rcnn(feat_ex = 0)
-state = torch.load("mask_rcnn_best.pth", map_location="cpu")
+def resize_mask(combined_mask, target_image):
+    """
+    Resizes a mask to match target_image size.
+    Accepts combined_mask of shape [1,H,W] or [1,1,H,W].
+    """
+    # Ensure mask has shape [N, C, H, W] for F.interpolate
+    if combined_mask.ndim == 3:
+        combined_mask = combined_mask.unsqueeze(0)  # -> [1, 1, H, W]
+    elif combined_mask.ndim != 4:
+        raise ValueError(f"Unexpected mask shape: {combined_mask.shape}")
+
+    # Get target height and width
+    if isinstance(target_image, torch.Tensor):
+        if target_image.ndim == 3:
+            H_img, W_img = target_image.shape[1], target_image.shape[2] if target_image.shape[0] in [1, 3] else target_image.shape[0], target_image.shape[1]
+        else:
+            raise ValueError(f"Unexpected target_image shape: {target_image.shape}")
+    else:  # assume numpy
+        H_img, W_img = target_image.shape[:2]
+
+    # Interpolate mask to target size
+    mask_resized = F.interpolate(
+        combined_mask.float(),
+        size=(H_img, W_img),
+        mode='bilinear',
+        align_corners=False
+    )
+    return mask_resized
+
+
+
+def paint_boxes(output, combined_mask):
+    _, _, H, W = combined_mask.shape
+    scores = output['scores']
+    boxes = output['boxes']
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+
+    idx = scores.argsort(descending=True)
+
+    # Apply sorting
+    topscores = scores[idx]
+    topboxes = boxes[idx]
+
+    print(" Painting the 10 best scoring BBoxes")
+
+    for i in range(10):
+        #print(" score: " + str(topscores[i]))
+        #print(" box: " + str(topboxes[i, :2]))
+        x1, y1, x2, y2 = topboxes[i].int().tolist()
+
+        # Clamp to image size (safer)
+        x1 = max(0, min(x1, W-1))
+        x2 = max(0, min(x2, W-1))
+        y1 = max(0, min(y1, H-1))
+        y2 = max(0, min(y2, H-1))
+
+        # Paint a white rectangle border = value 1
+        combined_mask[:, :, y1:y2, x1] = 1
+        combined_mask[:, :, y1:y2, x2] = 1
+        combined_mask[:, :, y1, x1:x2] = 1
+        combined_mask[:, :, y2, x1:x2] = 1
+
+    return combined_mask
+
+
+def combine_resize_submasks(output, target_image, input):
+
+    masks = output['masks']  # (N, 1, H_pred, W_pred)
+
+    if masks.ndim == 4:
+        masks = masks.squeeze(1)
+
+    combined_mask = masks.sum(dim=0)               # (H, W)
+    combined_mask = torch.clamp(combined_mask, 0, 1)
+    combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
+    print(f" Combining {len(masks)} masks and resizing to original")
+
+    if input == 'output':
+        combined_mask = paint_boxes(output, combined_mask)
+    else:
+
+        _, _, H, W = combined_mask.shape
+        for box in output['boxes']:
+            x1, y1, x2, y2 = box.int().tolist()
+            x1 = max(0, min(x1, W-1))
+            x2 = max(0, min(x2, W-1))
+            y1 = max(0, min(y1, H-1))
+            y2 = max(0, min(y2, H-1))
+            combined_mask[:, :, y1:y2, x1] = 1
+            combined_mask[:, :, y1:y2, x2] = 1
+            combined_mask[:, :, y1, x1:x2] = 1
+            combined_mask[:, :, y2, x1:x2] = 1
+
+
+    mask_resized = resize_mask(combined_mask, target_image)
+
+
+    return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
+
+# Make sure device is consistent
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load model and weights
+model = create_light_mask_rcnn()
+state = torch.load("./data/200epoch_10017.pth", map_location=device)  # load directly to device
+print("Model weights: ")
+print(model.load_state_dict(state, strict=False))
+
 model.load_state_dict(state)
+model.to(device)  # ensure model is on same device as inputs
 model.eval()
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"
-test_dataset = ForgeryDataset(
-    paths['train_authentic'],
-    paths['train_forged'],
-    paths['train_masks'],
-)
-""" transform = train_transform """
+
+test_dataset = ForgeryDataset(paths['train_authentic'],paths['train_forged'],paths['train_masks'],)
+
+test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
+
 
 
 if __name__ == "__main__":
-    train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+    train_loader = DataLoader(full_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 
-    for idx, (image, target, _) in enumerate(train_loader):
-        """ skip authentic images """
-        """if (len(target[0]['boxes']) == 0):
-            continue"""
-        # a loader with collate_fn returns batches of lists
-        image = image[0]           # take first item from batch
+    """ ONLY PLOTS THE FIRST ELEM IN BATCH """
+    plot = True
+
+    for idx, (image, target, filename) in enumerate(train_loader):
+        image = image[0]    # take first item from batch
         target = target[0]
-        raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
 
-        print("\n raw image shape: ")
-        print(raw_image.shape)
 
         with torch.no_grad():
-            outputs = model([image])   # must be list
-            """ Plot image, mask_pred and mask_true"""
-            full_pred_mask = full_mask_from_instance_masks(outputs[0], raw_image.shape)  # shape = network input (H_net, W_net)
-            # pred_mask is (H_net, W_net)
-            H_orig, W_orig, _ = raw_image.shape
+            outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            fig, ax = plt.subplots(2)
-            ax[0].imshow(raw_image)
-            ax[0].imshow(raw_mask[0], alpha=0.5)
+            target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy(), input = 'target')
+            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy(), input = 'output')
 
-            ax[1].imshow(full_pred_mask)
-            plt.show()
+            print(outputs_orig_size.shape, target_orig_size.shape)
 
-        print(full_pred_mask.shape, raw_mask.shape)
-        iou = binary_iou(full_pred_mask.cpu().numpy(), np.sum(raw_mask, axis = 0))
-        dice = binary_dice(full_pred_mask.cpu().numpy(), np.sum(raw_mask, axis = 0))
-        print(f"\nMean IoU: {iou:.4f}, Mean Dice: {dice:.4f}")
+            dice = soft_dice(outputs_orig_size, target_orig_size, True)
+            print(f"\nIdx: {idx} Dice: {dice:.4f}")
+
+            if plot:
+                import matplotlib
+                import matplotlib.pyplot as plt
+
+                fig, ax = plt.subplots(1, 2, figsize=(10,5))
+
+                # Denormalize image for display
+                mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
+                std = torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
+                image_denorm = image.cpu() * std + mean
+                image_plot = np.clip(image_denorm.permute(1,2,0).numpy(), 0, 1)
+
+                ax[0].imshow(image_plot)
+                ax[0].imshow(target_orig_size.cpu().numpy(), alpha=0.5)
+
+                mask_plot = np.clip(outputs_orig_size.cpu().numpy(), 0, 1)
+                ax[1].imshow(mask_plot)
+
+                plt.show(block=True)
 
 
-
-        """ Convert to numpy and encode """
-        """submission = {
-            "case_id": files[int(idx*4)],
-            "submission": rle_encode([full_pred_mask_resized.numpy()])
-        }"""
-
-
-        #rle = rle_encode(full_pred_mask_resized.numpy())
-        #print(f"rle encoded mask: {rle}")
+            # Prepare submission
+            """
+            submission = {
+                "case_id": filename[0],
+                "submission": rle_encode([outputs_orig_size])
+            }
+            """

@@ -27,60 +27,6 @@ from torch.utils.data import Subset
 from dataloader import *
 from edarnn import *
 
-
-def full_mask_from_instance_masks(output, image_shape):
-    """
-    output: dict from MaskRCNN
-    image_shape: network input shape, either (H, W, C) or (C, H, W)
-    H_orig, W_orig: original image size
-    """
-
-    # Handle both orderings
-    if len(image_shape) == 3:
-        if image_shape[0] in [1, 3]:  # likely (C, H, W)
-            C, H, W = image_shape
-        else:  # likely (H, W, C)
-            H, W, C = image_shape
-    else:
-        raise ValueError(f"Unexpected image_shape: {image_shape}")
-
-
-    print("output boxes: ")
-    print(output['boxes'])
-    print("\n")
-    full_mask = torch.zeros((H, W), dtype=torch.uint8)
-
-
-    for box, mask in zip(output['boxes'], output['masks']):
-        x1, y1, x2, y2 = box.int()
-
-        # Skip degenerate boxes
-        if x2 <= x1 or y2 <= y1 or x1<0 or y1<0 or x2>W or y2>H:
-            continue
-
-        if mask.ndim == 2:
-            mask = mask.unsqueeze(0).unsqueeze(0)
-        else:
-            mask = mask.unsqueeze(0)
-
-        # Resize mask to box size
-        mask_resized = F.interpolate(
-            mask, size=(y2 - y1, x2 - x1),
-            mode='bilinear', align_corners=False
-        )[0, 0]
-
-        mask_bin = (mask_resized > 0.5).byte()
-        full_mask[y1:y2, x1:x2] = mask_bin
-
-    # Resize full mask to original image size
-    full_mask_resized = F.interpolate(
-        full_mask.unsqueeze(0).unsqueeze(0).float(),
-        size=(H, W),
-        mode='nearest'
-    )[0, 0].byte()
-
-    return full_mask_resized
-
 def to_numpy(mask):
     """Convert torch tensor to 2D NumPy bool array."""
     if torch.is_tensor(mask):
@@ -107,6 +53,51 @@ def plot_masks(true_mask, pred_mask, title_prefix="", save_path=None):
         print(f"Plot saved to {save_path}")
     else:
         plt.show(block=True)  # keep window open in scripts
+
+import torch
+
+def soft_dice(pred_mask, target, verbose=False):
+    """
+    Computes soft Dice score between predicted mask and ground truth.
+
+    pred_mask: torch.Tensor, shape [H, W] or [1, H, W], float values in [0, 1]
+    target: dict from Mask R-CNN containing 'masks': [N, H, W]
+    verbose: bool, print intermediate values
+
+    Returns:
+        dice: float
+    """
+    if target.ndim == 2:   # single mask
+        true_mask = target.unsqueeze(0).cpu()  # [1, H, W]
+    else:
+        true_mask = target.float().cpu()       # [N, H, W]
+
+
+    # Flatten prediction
+    if pred_mask.ndim == 3 and pred_mask.shape[0] == 1:
+        pred_mask = pred_mask.squeeze(0).cpu()
+    pred_flat = pred_mask.contiguous().view(-1).cpu()
+
+    if verbose:
+        print(f"Target masks shape: {true_mask.shape}, sum per mask: {true_mask.sum()}")
+
+    full_true_mask = (true_mask.sum(dim=0) > 0).float()
+    true_flat = full_true_mask.contiguous().view(-1)
+
+    if verbose:
+        print(f"Pred mask stats -> min: {pred_flat.min():.4f}, max: {pred_flat.max():.4f}, sum: {pred_flat.sum():.4f}")
+        print(f"Full true mask stats -> sum: {true_flat.sum():.4f}, unique values: {true_flat.unique()}")
+
+    # Compute soft dice
+    intersection = (pred_flat * true_flat).sum()
+    denominator = pred_flat.sum() + true_flat.sum()
+    dice = (2.0 * intersection + 1e-6) / (denominator + 1e-6)
+
+    if verbose:
+        print(f"Intersection: {intersection:.4f}, Denominator: {denominator:.4f}, Dice: {dice:.6f}")
+
+    return dice.item()
+
 
 
 def binary_iou(pred_mask, true_mask, debug=False):

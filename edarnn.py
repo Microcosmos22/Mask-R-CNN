@@ -22,15 +22,12 @@ from torch.utils.data import Subset
 
 from dataloader import *
 
-from sklearn.model_selection import KFold
 import warnings
 from itertools import product
 from wakepy import keep
 
 import json
 import os
-from skorch import NeuralNet
-from skorch.helper import predefined_split
 from sklearn.model_selection import GridSearchCV
 
 
@@ -57,43 +54,57 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-
-dataset = Subset(full_dataset, list(range(50)))
-indices = list(range(len(dataset)))
+full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
+subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
-    indices,
+    range(len(full_dataset_subset)),
     test_size=0.1,
     random_state=42,
-    shuffle=True
+    shuffle=False
 )
-
 
 print("\nTRAIN FILES:")
 for idx in train_idx:
-    _, _, filename = dataset[idx]  # or whatever attribute stores filenames
-    print(filename)
+    orig_idx = subset_indices[idx]     # map subset index → original dataset index
+    filename = full_dataset.get_filename(orig_idx)
+    print(str(orig_idx)+": ", filename['image_id']+".png")
 
-train_subset = Subset(dataset, train_idx)
-val_subset = Subset(dataset, val_idx)
+
+
+train_subset = Subset(full_dataset_subset, train_idx)
+val_subset = Subset(full_dataset_subset, val_idx)
 
 
 feature_extractors = []
 
+
+eval_subset = torch.utils.data.Subset(train_subset, [0])
+
+print(len(train_subset), len(eval_subset))
+
+# optionally set transforms
+val_subset.dataset.transform = val_transform
+
+train_loader = DataLoader(train_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+eval_loader = DataLoader(eval_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+
+
 def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
     if feat_ex == 0:
-        backbone = torchvision.models.mobilenet_v3_small(pretrained=False).features
+        backbone = torchvision.models.mobilenet_v3_small(pretrained=True).features
         in_ch = 576
         backbone.out_channels = 256
         out_ch = 256
     elif feat_ex == 1:
-        backbone = torchvision.models.mobilenet_v3_large(pretrained=False).features
+        backbone = torchvision.models.mobilenet_v3_large(pretrained=True).features
         in_ch = 960
         backbone.out_channels = 256
         out_ch = 256
     elif feat_ex == 2:
-        resnet = torchvision.models.resnet34(pretrained=False)
+        resnet = torchvision.models.resnet34(pretrained=True)
         backbone = nn.Sequential(
             resnet.conv1,
             resnet.bn1,
@@ -119,7 +130,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
     # Anchor generator
     anchor_generator = AnchorGenerator(
-        sizes=((16, 32, 64, 128),),
+        sizes=((16, 32, 64, 128, 256),),
         aspect_ratios=((0.5, 1.0, 2.0),)
     )
 
@@ -139,14 +150,28 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         rpn_anchor_generator=anchor_generator,
         box_roi_pool=roi_pooler,
         mask_roi_pool=mask_roi_pooler,
-        min_size=224,
-        max_size=224,
+        min_size=512,
+        max_size=512,
         rpn_pre_nms_top_n_train=1000,
         rpn_pre_nms_top_n_test=1000,
         rpn_post_nms_top_n_train=200,
         rpn_post_nms_top_n_test=200,
         box_detections_per_img=100
     )
+
+
+    """for p in model.roi_heads.mask_head.parameters():
+        p.requires_grad = False
+
+    for p in model.roi_heads.mask_predictor.parameters():
+        p.requires_grad = False
+    model.roi_heads.mask_on = False
+    """
+
+    for p in model.backbone.parameters():
+        p.requires_grad = False
+    model.roi_heads.score_thresh = 0.000
+
 
     return model
 
@@ -156,8 +181,24 @@ def train_epoch(model, dataloader, optimizer, device):
 
     for images, targets, _ in tqdm(dataloader, desc="Training"):
 
+
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        for t in targets:
+            print(f"yo {len(t['masks'])} masks in target")
+
+            if len(t["boxes"]) > 0:
+                for box in t["boxes"]:
+                    x1, y1, x2, y2 = box
+                    h = y2 - y1
+                    w = x2 - x1
+                    # do your mask logic here
+
+                    t["masks"] = torch.ones_like(t["masks"])  # force full masks
+            
+        #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
+        #plt.imshow(full_mask)
+        #plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
@@ -166,10 +207,8 @@ def train_epoch(model, dataloader, optimizer, device):
         with torch.no_grad():
             preds = model([images[0]])
             scores = preds[0]['scores']  # confidence scores for each box
-            boxes = preds[0]['boxes'][scores > 0.35]
-            print(boxes.shape)
+            #print(boxes.shape)
         model.train()  # switch back to training
-
 
         # Backward pass
         optimizer.zero_grad()
@@ -178,7 +217,8 @@ def train_epoch(model, dataloader, optimizer, device):
 
         total_loss += losses.item()
 
-    return total_loss / len(dataloader)
+    return total_loss / len(dataloader), loss_dict['loss_mask'].item(), loss_dict['loss_box_reg'], loss_dict['loss_classifier']
+
 
 def validate_epoch(model, dataloader, device):
     model.train()  # For validation, we use train mode because of the features of Mask R-CNN
@@ -194,11 +234,35 @@ def validate_epoch(model, dataloader, device):
             total_loss += losses.item()
 
     return total_loss / len(dataloader)
+import torch
+import os
+import time
+
+def save_model_safe(model, path, max_retries=5, delay=0.5):
+    """Save model safely on Windows, retrying if file is locked."""
+    for attempt in range(max_retries):
+        try:
+            if os.path.exists(path):
+                os.remove(path)  # remove previous file
+            if isinstance(model, torch.nn.Module):
+                torch.save(model.state_dict(), path)
+            else:
+                torch.save(model, path)
+            print(f"Saved model to {path}")
+            return
+        except PermissionError:
+            print(f"File {path} is locked. Waiting {delay}s and retrying...")
+            time.sleep(delay)
+    raise PermissionError(f"Could not write to {path} after {max_retries} retries")
+
 
 def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
     model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
     rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
+    if os.path.isfile(machinepath):
+        model.load_state_dict(torch.load(machinepath))
+        print(" LOADING: "+machinepath)
     model.to(device)
     print("\n")
 
@@ -207,9 +271,10 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
     train_losses = []
     val_losses = []
+    rcnn_losses = []
     # Early stopping parameters
-    patience = 2        # epochs to wait for improvement
-    best_iou = 10000000.1
+    patience = 4        # epochs to wait for improvement
+    best_val = 10000000.1
     epochs_no_improve = 0
     early_stop = False
 
@@ -217,13 +282,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(f"Epoch {epoch+1}/{num_epochs}")
 
         """ Train, validate, evaluate """
-        train_loss = train_epoch(model, train_loader, optimizer, device)
+        train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device)
+
         train_losses.append(train_loss)
 
         if val_loader is not None:
             val_loss = validate_epoch(model, val_loader, device)
             val_losses.append(val_loss)
-            print(f"\nTrain Loss: {train_loss:.4f}, Val Loss: {val_losses[-1]:.4f}")
+            rcnn_losses.append([loss_mask, loss_box_reg.detach().numpy(), loss_classifier.detach().numpy()])
+            print(f"\nLOSSES: Train: {train_loss:.4f}, Val: {val_losses[-1]:.4f}, Mask: {loss_mask:.4f}, Box regr. {loss_box_reg:.4f}, Classifier: {loss_classifier:.4f}")
         else:
             val_losses.append(0)
             print(f"\nTrain Loss: {train_loss:.4f}")
@@ -242,13 +309,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
         if not early:
             epochs_no_improve = 0
-            print("Saving model")
-            torch.save(model.state_dict(), machinepath)
+            save_model_safe(model, machinepath)
 
         if early:
-            if (np.mean(dice < best_dice)):
+            if (best_val > val_loss):
+                best_val = val_loss
                 epochs_no_improve = 0
-                torch.save(model.state_dict(), machinepath)
+                if os.path.exists(machinepath):
+                    os.remove(machinepath)   # safely remove old file
+                save_model_safe(model, machinepath)
             else:
                 epochs_no_improve += 1
                 if epochs_no_improve >= patience:
@@ -258,16 +327,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     if eval_loader is not None:
         return model, best_iou, best_dice, train_loss, val_loss
     else:
-        return model, train_losses, val_losses
+        return model, train_losses, val_losses, np.asarray(rcnn_losses)
 
 if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "best_overfit_machine.pth"
-    num_epochs = 100
+    machinepath = "./data/200epoch_10017.pth"
+    num_epochs = 500
     batch = 1
-    full_dataset = Subset(full_dataset, list(range(5)))
 
     feat_ex = [0]
     lr = [0.001]
@@ -290,34 +358,26 @@ if __name__ == "__main__":
     print(f"Total combinations: {len(all_combinations)}")
     print(all_combinations)
 
-    np.save(f"losses.npy", np.asarray([1,2,3,4]))
-
     with keep.running():
 
         for combo in all_combinations:
 
-            eval_subset = torch.utils.data.Subset(train_subset, [0])
-
-            print(len(train_subset), len(eval_subset))
-
-            # optionally set transforms
-            val_subset.dataset.transform = val_transform
-
-            train_loader = DataLoader(train_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            val_loader = DataLoader(val_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-            eval_loader = DataLoader(eval_subset, batch_size=batch, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
-
+            for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
+                print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_loss, val_loss = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
-            plt.plot(train_loss)
-            plt.plot(val_loss)
-            plt.savefig("last_training.png")
+            plt.plot(np.log(train_losses), label="Train")
+            plt.plot(np.log(val_losses), label="Val")
+            plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
+            plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
+            plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
+            plt.legend()
+            plt.savefig("./data/last_training.png")
             plt.show()
 
 
             print(" Saving losses.json")
             losses["params"].append(combo)
-            with open("losses.json", "w") as f:
+            with open("./data/losses.json", "w") as f:
                 json.dump(losses, f, indent=4)
