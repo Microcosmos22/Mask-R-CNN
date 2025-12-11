@@ -390,7 +390,7 @@ if __name__ == "__main__":
             model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
             plt.plot(np.log(np.divide(train_losses,np.max(train_losses))), label="Train")
-            plt.plot(np.log(np.divide(val_losses,np.max(val_losses)))), label="Val")
+            plt.plot(np.log(np.divide(val_losses,np.max(val_losses))), label="Val")
             plt.plot(np.log(np.divide(rcnn_losses[:,0],np.max(rcnn_losses[:,0]))), label="Mask")
             plt.plot(np.log(np.divide(rcnn_losses[:,1],np.max(rcnn_losses[:,1]))), label=" Box regr.")
             plt.plot(np.log(np.divide(rcnn_losses[:,2],np.max(rcnn_losses[:,2]))), label="Classifier")
