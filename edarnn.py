@@ -193,9 +193,10 @@ def train_epoch(model, dataloader, optimizer, device):
                     h = y2 - y1
                     w = x2 - x1
                     # do your mask logic here
+                    print(f" MASK SHAPE: {t['masks'].shape}")
 
                     t["masks"] = torch.ones_like(t["masks"])  # force full masks
-            target_orig_size = combine_resize_submasks(t, images[idx].permute(1, 2, 0).cpu().numpy(), input = 'target')
+            target_orig_size = combine_resize_submasks(t, images[idx].permute(1, 2, 0).cpu().numpy())
 
 
             #plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)

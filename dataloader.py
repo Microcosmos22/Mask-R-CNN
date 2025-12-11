@@ -23,7 +23,7 @@ from torchvision.transforms import functional as F_transforms
 
 
 
-def paint_boxes(output, combined_mask):
+def paint_output_boxes(output, combined_mask):
     _, _, H, W = combined_mask.shape
     scores = output['scores']
     boxes = output['boxes']
@@ -86,8 +86,30 @@ def resize_mask(combined_mask, target_image):
     )
     return mask_resized
 
+def paint_boxes(output, combined_mask):
+    if input == 'output':
+        mask_paintedboxes = paint_output_boxes(output, combined_mask)
+    elif input == 'target':
 
-def combine_resize_submasks(output, target_image, input):
+        _, _, H, W = combined_mask.shape
+        mask_paintedboxes = copy.copy(combined_mask)
+        for box in output['boxes']:
+            x1, y1, x2, y2 = box.int().tolist()
+            x1 = max(0, min(x1, W-1))
+            x2 = max(0, min(x2, W-1))
+            y1 = max(0, min(y1, H-1))
+            y2 = max(0, min(y2, H-1))
+            mask_paintedboxes[:, :, y1:y2, x1] = 1
+            mask_paintedboxes[:, :, y1:y2, x2] = 1
+            mask_paintedboxes[:, :, y1, x1:x2] = 1
+            mask_paintedboxes[:, :, y2, x1:x2] = 1
+
+    return mask_paintedboxes
+
+
+def combine_resize_submasks(output, target_image):
+    """ Combines all submasks into a full image,
+     """
 
     masks = output['masks']  # (N, 1, H_pred, W_pred)
 
@@ -98,22 +120,6 @@ def combine_resize_submasks(output, target_image, input):
     combined_mask = torch.clamp(combined_mask, 0, 1)
     combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
     print(f" Combining {len(masks)} masks and resizing to original")
-
-    if input == 'output':
-        combined_mask = paint_boxes(output, combined_mask)
-    else:
-
-        _, _, H, W = combined_mask.shape
-        for box in output['boxes']:
-            x1, y1, x2, y2 = box.int().tolist()
-            x1 = max(0, min(x1, W-1))
-            x2 = max(0, min(x2, W-1))
-            y1 = max(0, min(y1, H-1))
-            y2 = max(0, min(y2, H-1))
-            combined_mask[:, :, y1:y2, x1] = 1
-            combined_mask[:, :, y1:y2, x2] = 1
-            combined_mask[:, :, y1, x1:x2] = 1
-            combined_mask[:, :, y2, x1:x2] = 1
 
 
     mask_resized = resize_mask(combined_mask, target_image)

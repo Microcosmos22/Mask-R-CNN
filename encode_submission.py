@@ -88,7 +88,6 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
     except ValueError as e:
         raise ParticipantVisibleError(str(e)) from e
 
-
 # Make sure device is consistent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -120,13 +119,17 @@ if __name__ == "__main__":
     for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
         target = target[0]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
 
 
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            target_orig_size = combine_resize_submasks(target, image.permute(1, 2, 0).cpu().numpy(), input = 'target')
-            outputs_orig_size = combine_resize_submasks(outputs[0], image.permute(1, 2, 0).cpu().numpy(), input = 'output')
+            target_orig_size = combine_resize_submasks(target, raw_img)
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img)
+
+
+
 
             print(outputs_orig_size.shape, target_orig_size.shape)
 
@@ -134,8 +137,6 @@ if __name__ == "__main__":
             print(f"\nIdx: {idx} Dice: {dice:.4f}")
 
             if plot:
-                import matplotlib
-                import matplotlib.pyplot as plt
 
                 fig, ax = plt.subplots(1, 2, figsize=(10,5))
 
