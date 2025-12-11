@@ -9,6 +9,9 @@ import albumentations as A
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 
+import os
+import time
+
 from PIL import Image
 from tqdm import tqdm
 from collections import defaultdict
@@ -179,27 +182,44 @@ def train_epoch(model, dataloader, optimizer, device):
     model.train()
     total_loss = 0
 
-    for images, targets, _ in tqdm(dataloader, desc="Training"):
+    for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Training")):
 
 
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
+
         for idx, t in enumerate(targets):
             print(f"yo {len(t['masks'])} masks in target")
 
-            if len(t["boxes"]) > 0:
-                for box in t["boxes"]:
-                    x1, y1, x2, y2 = box
-                    h = y2 - y1
-                    w = x2 - x1
-                    # do your mask logic here
+            # raw_img is a numpy HxW(x3) array returned by get_raw_img_mask(idx)
+            H, W = raw_img.shape[:2]
 
-                    t["masks"] = torch.ones_like(t["masks"])  # force full masks
-            target_orig_size = combine_resize_submasks(t, images[idx].permute(1, 2, 0).cpu().numpy(), input = 'target')
+            # ensure boxes are a tensor with shape (N,4)
+            boxes = t['boxes']
+            if boxes.ndim == 1:
+                boxes = boxes.unsqueeze(0)
 
+            N = len(t['boxes'])
+            target_masks = torch.zeros((N, 512, 512), dtype=torch.uint8)
 
-            #plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
-            #plt.show()
+            for i, box in enumerate(t["boxes"]):
+                x1, y1, x2, y2 = box.int()
+                target_masks[i, y1:y2, x1:x2] = 1
+
+            t["masks"] = target_masks
+
+            """# debug: visualize the first instance mask BEFORE resizing/combining
+            plt.imshow(target_masks[0].cpu().numpy(), vmin=0, vmax=1)
+            plt.title(f"instance 0 mask (H={H},W={W})")
+            plt.show()
+
+            # now combine/resize (combine_resize_submasks should use nearest for masks)
+            target_orig_size = combine_resize_submasks(t, raw_img)
+            plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
+            plt.show()
+            """
+
 
         #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
         #plt.imshow(full_mask)
@@ -239,9 +259,6 @@ def validate_epoch(model, dataloader, device):
             total_loss += losses.item()
 
     return total_loss / len(dataloader)
-import torch
-import os
-import time
 
 def save_model_safe(model, path, max_retries=5, delay=0.5):
     """Save model safely on Windows, retrying if file is locked."""
@@ -338,8 +355,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/200epoch_10017.pth"
-    num_epochs = 500
+    machinepath = "./data/bboxes_200epochs.pth"
+    num_epochs = 300
     batch = 1
 
     feat_ex = [0]
@@ -372,11 +389,11 @@ if __name__ == "__main__":
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
-            plt.plot(np.log(train_losses), label="Train")
-            plt.plot(np.log(val_losses), label="Val")
-            plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
-            plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
-            plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
+            plt.plot(np.log(np.divide(train_losses,np.max(train_losses))), label="Train")
+            plt.plot(np.log(np.divide(val_losses,np.max(val_losses)))), label="Val")
+            plt.plot(np.log(np.divide(rcnn_losses[:,0],np.max(rcnn_losses[:,0]))), label="Mask")
+            plt.plot(np.log(np.divide(rcnn_losses[:,1],np.max(rcnn_losses[:,1]))), label=" Box regr.")
+            plt.plot(np.log(np.divide(rcnn_losses[:,2],np.max(rcnn_losses[:,2]))), label="Classifier")
             plt.legend()
             plt.savefig("./data/last_training.png")
             plt.show()
