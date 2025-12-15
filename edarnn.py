@@ -57,7 +57,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(20)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
