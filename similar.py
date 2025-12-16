@@ -7,16 +7,18 @@ from dataloader import *
 from scoring import *
 
 # Model
-model = models.mobilenet_v2(weights="IMAGENET1K_V1")
-backbone = model.features
+import timm
+model = models.resnet50(weights="IMAGENET1K_V1")
+backbone = torch.nn.Sequential(*list(model.children())[:-2])
 backbone.eval()
 
-device = "cpu"
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 backbone.to(device)
 
 # Params
-thresholds = [0.8, 0.85, 0.9, 0.95, 0.98]
-MAX_IMAGES = 8
+thresholds = [0.7, 0.8, 0.9]
+MAX_IMAGES = 80
+mindistlist = [0.2]
 
 train_loader = DataLoader(
     full_dataset,
@@ -52,7 +54,8 @@ for thresh in thresholds:
     dices = []
     mask_pairs_list = []
 
-    for feat, (x, raw_img, raw_mask) in zip(features_cache, meta_cache):
+    for feat, (x, raw_img, raw_mask) in tqdm(zip(features_cache, meta_cache)):
+        amount_masks = 0
 
         _, C, Hf, Wf = feat.shape
         Hpx, Wpx = x.shape[1:]
@@ -82,10 +85,13 @@ for thresh in thresholds:
         # -------- paint mask
         for k, kp in zip(ks.tolist(), kps.tolist()):
             y, x_ = ys[k], xs[k]
-            combined_mask[y:y+cell_h, x_:x_+cell_w] = 1
 
             y2, x2 = ys[kp], xs[kp]
-            combined_mask[y2:y2+cell_h, x2:x2+cell_w] = 1
+
+            if np.sqrt(np.power(x_-x2,2)+np.power(y-y2,2)) > round(0.2*Hpx):
+                combined_mask[y:y+cell_h, x_:x_+cell_w] = 1
+                combined_mask[y2:y2+cell_h, x2:x2+cell_w] = 1
+                amount_masks += 2
 
         # -------- resize + score
         combined_mask = resize_mask(combined_mask.unsqueeze(0),raw_img)
@@ -99,7 +105,7 @@ for thresh in thresholds:
         plt.savefig("Dice.png")
 
         dices.append(dice)
-        mask_pairs_list.append(mask_pairs.sum())
+        mask_pairs_list.append(amount_masks)
 
 
 
