@@ -15,7 +15,7 @@ device = "cpu"
 backbone.to(device)
 
 # Params
-thresholds = [0.9, 0.92, 0.94, 0.96, 0.98]
+thresholds = [0.8, 0.85, 0.9, 0.95, 0.98]
 MAX_IMAGES = 8
 
 train_loader = DataLoader(
@@ -69,7 +69,9 @@ for thresh in thresholds:
 
         # -------- threshold
         mask_pairs = sim > thresh
-        ks, kps = torch.nonzero(mask_pairs, as_tuple=True)
+        mask_pairs.fill_diagonal_(False)
+
+        ks, kps = torch.nonzero(mask_pairs, as_tuple=True) # list of matching k, kps
 
         # -------- mapping k → pixel coords
         ys = (torch.arange(Hf) * cell_h).repeat_interleave(Wf)
@@ -89,6 +91,12 @@ for thresh in thresholds:
         combined_mask = resize_mask(combined_mask.unsqueeze(0),raw_img)
 
         dice = soft_dice(combined_mask.unsqueeze(0),torch.tensor(raw_mask))
+
+
+        fig, ax = plt.subplots(1,2)
+        ax[0].imshow(combined_mask.squeeze(0).squeeze(0))
+        ax[1].imshow(raw_mask.sum(0))
+        plt.savefig("Dice.png")
 
         dices.append(dice)
         mask_pairs_list.append(mask_pairs.sum())
