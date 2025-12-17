@@ -211,7 +211,6 @@ def train_epoch(model, dataloader, optimizer, device):
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
 
-
         # Backward pass
         optimizer.zero_grad()
         losses.backward()
@@ -333,7 +332,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/frozen_painted_100epochs.pth"
+    machinepath = "./data/natural_frozen_300epochs.pth"
     num_epochs = 100
     batch = 1
 
