@@ -20,7 +20,7 @@ Therefore it is also hard to debug which parts are failing, although we managed 
 2. Then we train only the mask segmentation (we freeze the backbone) and try to overfit 5 images.
 3. Unfreeze everything, train on the whole dataset.
    
-![example](images/10017.png)
+![example](./images/10017.png)
 
 The first image contains two forgery regions masked in yellow (because they have been manipulated within the image). Here we found already some flaws in the pipeline, but most importantly, the model is not able to overfit.
 
