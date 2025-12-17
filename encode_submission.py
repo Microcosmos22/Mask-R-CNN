@@ -93,7 +93,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
 model = create_light_mask_rcnn()
-state = torch.load("./data/200epoch_10017.pth", map_location=device)  # load directly to device
+state = torch.load("./images/frozen_natural/natural_frozen_100epochs.pth", map_location=device)  # load directly to device
 print("Model weights: ")
 print(model.load_state_dict(state, strict=False))
 
@@ -127,8 +127,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            target_orig_size = combine_gt_masks(target, raw_img)
-            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, score_thresh = 0.01)
+            target_orig_size = combine_resize_submasks(target, raw_img)
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img)
 
 
             print(outputs_orig_size.shape, target_orig_size.shape)
