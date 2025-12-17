@@ -116,6 +116,8 @@ if __name__ == "__main__":
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
     plot = True
 
+
+
     for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
         target = target[0]
@@ -125,10 +127,8 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            target_orig_size = combine_resize_submasks(target, raw_img)
-            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img)
-
-
+            target_orig_size = combine_gt_masks(target, raw_img)
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, score_thresh = 0.01)
 
 
             print(outputs_orig_size.shape, target_orig_size.shape)
@@ -144,13 +144,18 @@ if __name__ == "__main__":
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
                 std = torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
                 image_denorm = image.cpu() * std + mean
-                image_plot = np.clip(image_denorm.permute(1,2,0).numpy(), 0, 1)
+                image_denorm = resize_mask(image_denorm, target_orig_size)
+                image_plot = np.clip(image_denorm.squeeze(0).permute(1,2,0).numpy(), 0, 1)
+                target_orig_size = paint_output_boxes(outputs[0], torch.tensor(target_orig_size).unsqueeze(0).unsqueeze(0))
+
 
                 ax[0].imshow(image_plot)
-                ax[0].imshow(target_orig_size.cpu().numpy(), alpha=0.5)
+                ax[0].imshow(target_orig_size.squeeze(0).squeeze(0).cpu().numpy(), alpha=0.5)
 
                 mask_plot = np.clip(outputs_orig_size.cpu().numpy(), 0, 1)
                 ax[1].imshow(mask_plot)
+                ax[0].set_title("Target mask + output boxes")
+                ax[1].set_title(" Output mask")
 
                 plt.show(block=True)
 
