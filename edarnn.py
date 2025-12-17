@@ -57,7 +57,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(20)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -89,9 +89,9 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-val_loader = DataLoader(val_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-eval_loader = DataLoader(eval_subset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 
 def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
@@ -163,13 +163,13 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     )
 
 
-    """for p in model.roi_heads.mask_head.parameters():
+    for p in model.roi_heads.mask_head.parameters():
         p.requires_grad = False
 
     for p in model.roi_heads.mask_predictor.parameters():
         p.requires_grad = False
     model.roi_heads.mask_on = False
-    """
+
 
     for p in model.backbone.parameters():
         p.requires_grad = False
@@ -190,12 +190,8 @@ def train_epoch(model, dataloader, optimizer, device):
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
 
         for idx, t in enumerate(targets):
-            print(f"yo {len(t['masks'])} masks in target")
-
-            # raw_img is a numpy HxW(x3) array returned by get_raw_img_mask(idx)
             H, W = raw_img.shape[:2]
 
-            # ensure boxes are a tensor with shape (N,4)
             boxes = t['boxes']
             if boxes.ndim == 1:
                 boxes = boxes.unsqueeze(0)
@@ -203,37 +199,18 @@ def train_epoch(model, dataloader, optimizer, device):
             N = len(t['boxes'])
             target_masks = torch.zeros((N, 512, 512), dtype=torch.uint8)
 
+
             for i, box in enumerate(t["boxes"]):
                 x1, y1, x2, y2 = box.int()
                 target_masks[i, y1:y2, x1:x2] = 1
 
             t["masks"] = target_masks
 
-            """# debug: visualize the first instance mask BEFORE resizing/combining
-            plt.imshow(target_masks[0].cpu().numpy(), vmin=0, vmax=1)
-            plt.title(f"instance 0 mask (H={H},W={W})")
-            plt.show()
-
-            # now combine/resize (combine_resize_submasks should use nearest for masks)
-            target_orig_size = combine_resize_submasks(t, raw_img)
-            plt.imshow(target_orig_size.cpu().numpy(), alpha=0.5)
-            plt.show()
-            """
-
-
-        #full_mask = full_mask_from_instance_masks(targets[0], images[0])  # shape = network input (H_net, W_net)
-        #plt.imshow(full_mask)
-        #plt.show()
 
         # Forward pass
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
-        model.eval()  # temporarily switch to eval mode
-        with torch.no_grad():
-            preds = model([images[0]])
-            scores = preds[0]['scores']  # confidence scores for each box
-            #print(boxes.shape)
-        model.train()  # switch back to training
+
 
         # Backward pass
         optimizer.zero_grad()
@@ -271,6 +248,8 @@ def save_model_safe(model, path, max_retries=5, delay=0.5):
             else:
                 torch.save(model, path)
             print(f"Saved model to {path}")
+
+            print("\n")
             return
         except PermissionError:
             print(f"File {path} is locked. Waiting {delay}s and retrying...")
@@ -286,7 +265,6 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         model.load_state_dict(torch.load(machinepath))
         print(" LOADING: "+machinepath)
     model.to(device)
-    print("\n")
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
@@ -355,8 +333,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/bboxes_200epochs.pth"
-    num_epochs = 300
+    machinepath = "./data/frozen_painted_100epochs.pth"
+    num_epochs = 100
     batch = 1
 
     feat_ex = [0]
@@ -389,14 +367,18 @@ if __name__ == "__main__":
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
-            plt.plot(np.log(np.divide(train_losses,np.max(train_losses))), label="Train")
-            plt.plot(np.log(np.divide(val_losses,np.max(val_losses))), label="Val")
-            plt.plot(np.log(np.divide(rcnn_losses[:,0],np.max(rcnn_losses[:,0]))), label="Mask")
-            plt.plot(np.log(np.divide(rcnn_losses[:,1],np.max(rcnn_losses[:,1]))), label=" Box regr.")
-            plt.plot(np.log(np.divide(rcnn_losses[:,2],np.max(rcnn_losses[:,2]))), label="Classifier")
+
+            plt.clf()
+            plt.plot(np.log(train_losses), label="Log Train Err")
+            plt.plot(np.log(val_losses), label="Log Val Err")
             plt.legend()
-            plt.savefig("./data/last_training.png")
-            plt.show()
+            plt.savefig("./data/last_training_errs.png")
+            plt.clf()
+            plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
+            plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
+            plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
+            plt.legend()
+            plt.savefig("./data/last_training_boxerrs.png")
 
 
             print(" Saving losses.json")

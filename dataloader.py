@@ -234,6 +234,15 @@ class ForgeryDataset(Dataset):
         if sample['is_forged'] and mask.sum() > 0:
             boxes, labels, masks = self.mask_to_boxes(mask)
 
+            # build instance masks from boxes (cheap, done once)
+            N = len(boxes)
+            H, W = mask.shape
+            instance_masks = torch.zeros((N, H, W), dtype=torch.uint8)
+
+            for i, box in enumerate(boxes):
+                x1, y1, x2, y2 = box.int()
+                instance_masks[i, y1:y2, x1:x2] = 1
+
             target = {
                 'boxes': boxes,
                 'labels': labels,
