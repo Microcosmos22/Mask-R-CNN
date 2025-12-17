@@ -170,15 +170,15 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         p.requires_grad = False
     model.roi_heads.mask_on = False
 
-
+    """
     for p in model.backbone.parameters():
         p.requires_grad = False
     model.roi_heads.score_thresh = 0.000
-
+    """
 
     return model
 
-def train_epoch(model, dataloader, optimizer, device):
+def train_epoch(model, dataloader, optimizer, device, epoch):
     model.train()
     total_loss = 0
 
@@ -200,17 +200,31 @@ def train_epoch(model, dataloader, optimizer, device):
             target_masks = torch.zeros((N, 512, 512), dtype=torch.uint8)
 
 
-            for i, box in enumerate(t["boxes"]):
+            """for i, box in enumerate(t["boxes"]):
                 x1, y1, x2, y2 = box.int()
                 target_masks[i, y1:y2, x1:x2] = 1
 
-            t["masks"] = target_masks
+            t["masks"] = target_masks"""
 
 
         # Forward pass
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
 
+        model.eval()
+
+        with torch.no_grad():
+            output = model(images)
+            scores = output[0]["scores"]
+            boxes  = output[0]["boxes"]
+
+            if len(scores) > 0:
+                print(
+                    f"top score: {scores.max().item():.4f}, "
+                    f"num boxes: {len(scores)}"
+                )
+
+        model.train()
         # Backward pass
         optimizer.zero_grad()
         losses.backward()
@@ -281,7 +295,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(f"Epoch {epoch+1}/{num_epochs}")
 
         """ Train, validate, evaluate """
-        train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device)
+        train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device, epoch)
 
         train_losses.append(train_loss)
 
@@ -333,7 +347,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "./data/natural_frozen_300epochs.pth"
-    num_epochs = 100
+    num_epochs = 300
     batch = 1
 
     feat_ex = [0]
