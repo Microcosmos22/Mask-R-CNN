@@ -22,58 +22,52 @@ from torchvision.transforms import functional as F_transforms
 
 
 
+def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
+    """
+    Paints:
+      - top-k predicted boxes (from output)
+      - all GT target boxes
+    onto combined_mask (in image space).
+    """
 
-def paint_boxes(output, target, combined_mask):
     _, _, H, W = combined_mask.shape
-    scores = output['scores']
-    boxes = output['boxes']
-    masks = output['masks']  # (N, 1, H_pred, W_pred)
 
-    target_boxes = target["boxes"]
+    scores = output["scores"]
+    pred_boxes = output["boxes"]
+    gt_boxes = target["boxes"]
 
-
+    # Sort predictions by score
     idx = scores.argsort(descending=True)
+    pred_boxes = pred_boxes[idx]
 
-    # Apply sorting
-    topscores = scores[idx]
-    topboxes = boxes[idx]
+    def paint_box(cm, x1, y1, x2, y2):
+        x1, x2 = int(x1), int(x2)
+        y1, y2 = int(y1), int(y2)
 
-    print(" Painting the 10 best scoring BBoxes")
+        # clamp safely
+        x1 = max(0, min(x1, W - 1))
+        x2 = max(1, min(x2, W))
+        y1 = max(0, min(y1, H - 1))
+        y2 = max(1, min(y2, H))
 
-    for i in range(10):
-        #print(" score: " + str(topscores[i]))
-        #print(" box: " + str(topboxes[i, :2]))
-        x1, y1, x2, y2 = topboxes[i].int().tolist()
+        # top / bottom
+        cm[:, :, y1:y1+thickness, x1:x2] = 1
+        cm[:, :, y2-thickness:y2, x1:x2] = 1
 
-        # Clamp to image size (safer)
-        x1 = max(0, min(x1, W-1))
-        x2 = max(0, min(x2, W-1))
-        y1 = max(0, min(y1, H-1))
-        y2 = max(0, min(y2, H-1))
+        # left / right
+        cm[:, :, y1:y2, x1:x1+thickness] = 1
+        cm[:, :, y1:y2, x2-thickness:x2] = 1
 
-        # Paint a white rectangle border = value 1
-        combined_mask[:, :, y1:y2, x1] = 1
-        combined_mask[:, :, y1:y2, x2] = 1
-        combined_mask[:, :, y1, x1:x2] = 1
-        combined_mask[:, :, y2, x1:x2] = 1
+    # --- paint top-k predictions ---
+    for i in range(min(topk, len(pred_boxes))):
+        paint_box(combined_mask, *pred_boxes[i])
 
-    for i in range(len(target_boxes)):
-        x1, y1, x2, y2 = target_boxes[i].int().tolist()
-
-        x1 = max(0, min(x1, W-1))
-        x2 = max(0, min(x2, W-1))
-        y1 = max(0, min(y1, H-1))
-        y2 = max(0, min(y2, H-1))
-
-        # left & right edges
-        combined_mask[:, :, y1:y2, x1:x1+2] = 1
-        combined_mask[:, :, y1:y2, x2-1:x2+1] = 1
-
-        # top & bottom edges
-        combined_mask[:, :, y1:y1+2, x1:x2] = 1
-        combined_mask[:, :, y2-1:y2+1, x1:x2] = 1
+    # --- paint GT boxes ---
+    for box in gt_boxes:
+        paint_box(combined_mask, *box)
 
     return combined_mask
+
 
 
 def resize_mask(combined_mask, target_image):
@@ -183,7 +177,7 @@ class ForgeryDataset(Dataset):
         return image_raw, mask
 
     def get_image_props(self, image, mask):
-        boxes, labels, masks = self.mask_to_boxes(mask)
+        boxes, labels, masks = self.mask_to_boxes(mask, plot = False)
         mask_np = masks.cpu().numpy() if isinstance(masks, torch.Tensor) else masks
         mask_whiteness = mask_np.sum() / (image.shape[1] * image.shape[2])
 
@@ -236,7 +230,7 @@ class ForgeryDataset(Dataset):
 
         # Prepare targets for Mask R-CNN
         if sample['is_forged'] and mask.sum() > 0:
-            boxes, labels, masks = self.mask_to_boxes(mask)
+            boxes, labels, masks = self.mask_to_boxes(mask, plot = False)
 
             """
             PAINTING FILLED BOXES ON LOAD
@@ -271,7 +265,7 @@ class ForgeryDataset(Dataset):
 
         return image, target, self.samples[idx]['image_path']  # return filename too
 
-    def mask_to_boxes(self, mask):
+    def mask_to_boxes(self, mask, plot = False):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
         if isinstance(mask, torch.Tensor):
             mask_np = mask.detach().cpu().numpy()
@@ -317,21 +311,22 @@ class ForgeryDataset(Dataset):
             labels = torch.zeros(0, dtype=torch.int64)
             masks = torch.zeros((0, mask_np.shape[0], mask_np.shape[1]), dtype=torch.uint8)
 
-        # --- DEBUG VIS ---
-        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-        ax.imshow(mask_np, cmap="gray")
+        if plot:
+            # --- DEBUG VIS ---
+            fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+            ax.imshow(mask_np, cmap="gray")
 
-        for box in boxes:
-            x1, y1, x2, y2 = box.int().tolist()
-            rect = plt.Rectangle(
-                (x1, y1), x2 - x1, y2 - y1,
-                fill=False, edgecolor="red", linewidth=2
-            )
-            ax.add_patch(rect)
+            for box in boxes:
+                x1, y1, x2, y2 = box.int().tolist()
+                rect = plt.Rectangle(
+                    (x1, y1), x2 - x1, y2 - y1,
+                    fill=False, edgecolor="red", linewidth=2
+                )
+                ax.add_patch(rect)
 
-        ax.set_title("mask_to_boxes debug")
-        ax.axis("off")
-        plt.show()
+            ax.set_title("mask_to_boxes debug")
+            ax.axis("off")
+            plt.show()
 
 
         return boxes, labels, masks

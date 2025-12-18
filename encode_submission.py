@@ -128,12 +128,14 @@ if __name__ == "__main__":
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
             target_mask = combine_resize_submasks(target, raw_img, threshold = None)
-            target_mask_norm = resize_mask(target_mask.unsqueeze(0), image) # to normalized
             outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.5)
 
             ######
+            target_mask_norm = resize_mask(target_mask.unsqueeze(0), image) # to normalized
             target_paintedboxes = paint_boxes(outputs[0], target, torch.tensor(target_mask_norm))
             target_paintedboxes = resize_mask(target_paintedboxes, raw_img) # to original
+
+
 
             print(outputs_orig_size.shape, target_mask.shape)
 
