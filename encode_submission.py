@@ -14,14 +14,8 @@ from edarnn import *
 from dataloader import *
 from scoring import *
 
-
-
-
-
-
 class ParticipantVisibleError(Exception):
     pass
-
 
 @numba.jit(nopython=True)
 def _rle_encode_jit(x: npt.NDArray, fg_val: int = 1) -> list[int]:
@@ -93,7 +87,9 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
 model = create_light_mask_rcnn()
-state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
+#state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
+state = torch.load("./data//natural_frozen_100epochs.pth", map_location=device)  # load directly to device
+
 print("Model weights: ")
 print(model.load_state_dict(state, strict=False))
 
@@ -128,7 +124,7 @@ if __name__ == "__main__":
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
             target_mask = combine_resize_submasks(target, raw_img, threshold = None)
-            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.5)
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = None)
 
             ######
             target_mask_norm = resize_mask(target_mask.unsqueeze(0), image) # to normalized
