@@ -120,16 +120,29 @@ Intersection: 107.3293, Denominator: 24306.7480, DICE: 0.008831
 Idx: 0 DICE: 0.0088
 
 ```
+
+## Results
+
 The resulting image shows out target in the left, but it also includes the two target bounding boxes, as well as the 10 best scoring predicted boxes from the model. We can see that the network has learnt to find the correct box size and regress it towards the target. However the overfit is not successful, and the classification score above is also very unsure about whether the regions are authentic or forged.
 
 <img src="images/out_target_mask.png" width="400">
 
 Plotting the boxes for different epochs also did not highlight any new information:
 
-<img src="images/boxes_training0.png" width="400">
-<img src="images/boxes_training50.png" width="400">
-<img src="images/boxes_training80.png" width="400">
+<img src="images/boxes_training0.png" width="200">
+<img src="images/boxes_training50.png" width="200">
+<img src="images/boxes_training80.png" width="200">
 
 and it seems that, despite decreasing error, the boxes do not improve a lot from epoch 50 on.
+
+## Conclusion / further work
+
+We managed to find the bottleneck within this system of chained NNs and to improve its performance through model selection= Frozen head-mask + using the non-painted mask.
+Especially, we find:
+
+'DICE: 0.0088'
+
+which is an index for the match between the output and the target. 
+Further work on Mask R-CNN could further explore parameter space using more proposal boxes, stronger learning rates or freezing more parts of the algorithm; all of this while pursuing large **scores** values (confidence of box classification).
 
 
