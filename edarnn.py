@@ -257,6 +257,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     model.to(device)
 
     # 3️⃣ Create the optimizer
+    params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
@@ -324,8 +325,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/natural_frozen_300epochs.pth"
-    num_epochs = 300
+    machinepath = "./data/natural_frozen_100epochs.pth"
+    num_epochs = 100
     batch = 1
 
     feat_ex = [0]
