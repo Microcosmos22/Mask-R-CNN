@@ -60,6 +60,7 @@ def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
 
     # --- paint top-k predictions ---
     for i in range(min(topk, len(pred_boxes))):
+        print(f"Box {i}: score = {scores[i].item():.4f}")
         paint_box(combined_mask, *pred_boxes[i])
 
     # --- paint GT boxes ---

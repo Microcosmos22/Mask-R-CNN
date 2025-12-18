@@ -88,7 +88,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and weights
 model = create_light_mask_rcnn()
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("./data//natural_frozen_100epochs.pth", map_location=device)  # load directly to device
+state = torch.load("./images/frozen_painted/frozen_painted_100epochs.pth", map_location=device)  # load directly to device
 
 print("Model weights: ")
 print(model.load_state_dict(state, strict=False))
@@ -132,11 +132,8 @@ if __name__ == "__main__":
             target_paintedboxes = resize_mask(target_paintedboxes, raw_img) # to original
 
 
-
-            print(outputs_orig_size.shape, target_mask.shape)
-
             dice = soft_dice(outputs_orig_size, target_mask, True)
-            print(f"\nIdx: {idx} Dice: {dice:.4f}")
+            print(f"\nIdx: {idx} DICE: {dice:.4f}")
 
             if plot:
 

@@ -85,8 +85,8 @@ def soft_dice(pred_mask, target, verbose=False):
     true_flat = full_true_mask.contiguous().view(-1)
 
     if verbose:
-        print(f"Pred mask stats -> min: {pred_flat.min():.4f}, max: {pred_flat.max():.4f}, sum: {pred_flat.sum():.4f}")
-        print(f"Full true mask stats -> sum: {true_flat.sum():.4f}, unique values: {true_flat.unique()}")
+        print(f"Pred mask stats -> sum: {pred_flat.sum():.4f}")
+        print(f"Full true mask stats -> sum: {true_flat.sum():.4f}")
 
     # Compute soft dice
     intersection = (pred_flat * true_flat).sum()
@@ -94,7 +94,7 @@ def soft_dice(pred_mask, target, verbose=False):
     dice = (2.0 * intersection + 1e-6) / (denominator + 1e-6)
 
     if verbose:
-        print(f"Intersection: {intersection:.4f}, Denominator: {denominator:.4f}, Dice: {dice:.6f}")
+        print(f"Intersection: {intersection:.4f}, Denominator: {denominator:.4f}, DICE: {dice:.6f}")
 
     return dice.item()
 
