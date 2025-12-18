@@ -93,7 +93,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
 model = create_light_mask_rcnn()
-state = torch.load("./images/frozen_natural/natural_frozen_100epochs.pth", map_location=device)  # load directly to device
+state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
 print("Model weights: ")
 print(model.load_state_dict(state, strict=False))
 
@@ -127,13 +127,17 @@ if __name__ == "__main__":
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
-            target_orig_size = combine_resize_submasks(target, raw_img)
-            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img)
+            target_mask = combine_resize_submasks(target, raw_img, threshold = None)
+            target_mask_norm = resize_mask(target_mask.unsqueeze(0), image) # to normalized
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.5)
 
+            ######
+            target_paintedboxes = paint_boxes(outputs[0], target, torch.tensor(target_mask_norm))
+            target_paintedboxes = resize_mask(target_paintedboxes, raw_img) # to original
 
-            print(outputs_orig_size.shape, target_orig_size.shape)
+            print(outputs_orig_size.shape, target_mask.shape)
 
-            dice = soft_dice(outputs_orig_size, target_orig_size, True)
+            dice = soft_dice(outputs_orig_size, target_mask, True)
             print(f"\nIdx: {idx} Dice: {dice:.4f}")
 
             if plot:
@@ -144,16 +148,15 @@ if __name__ == "__main__":
                 mean = torch.tensor([0.485, 0.456, 0.406]).view(3,1,1)
                 std = torch.tensor([0.229, 0.224, 0.225]).view(3,1,1)
                 image_denorm = image.cpu() * std + mean
-                image_denorm = resize_mask(image_denorm, target_orig_size)
+                image_denorm = resize_mask(image_denorm, target_mask)
                 image_plot = np.clip(image_denorm.squeeze(0).permute(1,2,0).numpy(), 0, 1)
-                target_orig_size = paint_output_boxes(outputs[0], torch.tensor(target_orig_size).unsqueeze(0).unsqueeze(0))
 
 
                 ax[0].imshow(image_plot)
-                ax[0].imshow(target_orig_size.squeeze(0).squeeze(0).cpu().numpy(), alpha=0.5)
+                ax[0].imshow(target_paintedboxes.squeeze(0).squeeze(0).cpu().numpy(), alpha=0.5)
 
-                mask_plot = np.clip(outputs_orig_size.cpu().numpy(), 0, 1)
-                ax[1].imshow(mask_plot)
+                outputs_orig_size = np.clip(outputs_orig_size.cpu().numpy(), 0, 1)
+                ax[1].imshow(outputs_orig_size)
                 ax[0].set_title("Target mask + output boxes")
                 ax[1].set_title(" Output mask")
 

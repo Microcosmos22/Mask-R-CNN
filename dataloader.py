@@ -279,8 +279,9 @@ class ForgeryDataset(Dataset):
             mask_np = np.array(mask)
 
         # --- FIX: squeeze extra dimensions ---
-        if mask_np.ndim == 3:
-            mask_np = mask_np.squeeze()
+        mask_np = np.squeeze(mask_np)
+        if mask_np.ndim != 2:
+            raise ValueError("mask_to_boxes expects a single 2D mask")
 
         # --- FIX: ensure binary + correct type ---
         mask_np = (mask_np > 0).astype(np.uint8)
@@ -316,6 +317,23 @@ class ForgeryDataset(Dataset):
             labels = torch.zeros(0, dtype=torch.int64)
             masks = torch.zeros((0, mask_np.shape[0], mask_np.shape[1]), dtype=torch.uint8)
 
+        # --- DEBUG VIS ---
+        fig, ax = plt.subplots(1, 1, figsize=(5, 5))
+        ax.imshow(mask_np, cmap="gray")
+
+        for box in boxes:
+            x1, y1, x2, y2 = box.int().tolist()
+            rect = plt.Rectangle(
+                (x1, y1), x2 - x1, y2 - y1,
+                fill=False, edgecolor="red", linewidth=2
+            )
+            ax.add_patch(rect)
+
+        ax.set_title("mask_to_boxes debug")
+        ax.axis("off")
+        plt.show()
+
+
         return boxes, labels, masks
 
 base_path = "../recodai-luc-scientific-image-forgery-detection/"
@@ -342,3 +360,7 @@ val_transform = A.Compose([
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ToTensorV2(),
 ])
+
+if __name__ == "__main__":
+
+    print("test")
