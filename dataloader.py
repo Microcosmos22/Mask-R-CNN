@@ -23,11 +23,14 @@ from torchvision.transforms import functional as F_transforms
 
 
 
-def paint_output_boxes(output, combined_mask):
+def paint_boxes(output, target, combined_mask):
     _, _, H, W = combined_mask.shape
     scores = output['scores']
     boxes = output['boxes']
     masks = output['masks']  # (N, 1, H_pred, W_pred)
+
+    target_boxes = target["boxes"]
+
 
     idx = scores.argsort(descending=True)
 
@@ -54,6 +57,22 @@ def paint_output_boxes(output, combined_mask):
         combined_mask[:, :, y1, x1:x2] = 1
         combined_mask[:, :, y2, x1:x2] = 1
 
+    for i in range(len(target_boxes)):
+        x1, y1, x2, y2 = target_boxes[i].int().tolist()
+
+        x1 = max(0, min(x1, W-1))
+        x2 = max(0, min(x2, W-1))
+        y1 = max(0, min(y1, H-1))
+        y2 = max(0, min(y2, H-1))
+
+        # left & right edges
+        combined_mask[:, :, y1:y2, x1:x1+2] = 1
+        combined_mask[:, :, y1:y2, x2-1:x2+1] = 1
+
+        # top & bottom edges
+        combined_mask[:, :, y1:y1+2, x1:x2] = 1
+        combined_mask[:, :, y2-1:y2+1, x1:x2] = 1
+
     return combined_mask
 
 
@@ -70,8 +89,15 @@ def resize_mask(combined_mask, target_image):
 
     # Get target height and width
     if isinstance(target_image, torch.Tensor):
-        if target_image.ndim == 3:
-            H_img, W_img = target_image.shape[1], target_image.shape[2] if target_image.shape[0] in [1, 3] else target_image.shape[0], target_image.shape[1]
+        if target_image.ndim == 3:  # (C,H,W) or (H,W,C)
+            if target_image.shape[0] in (1, 3):      # (C,H,W)
+                H_img, W_img = target_image.shape[1], target_image.shape[2]
+            else:                                    # (H,W,C)
+                H_img, W_img = target_image.shape[0], target_image.shape[1]
+
+        elif target_image.ndim == 2:  # (H,W)
+            H_img, W_img = target_image.shape
+
         else:
             raise ValueError(f"Unexpected target_image shape: {target_image.shape}")
     else:  # assume numpy
@@ -85,32 +111,15 @@ def resize_mask(combined_mask, target_image):
     )
     return mask_resized
 
-def paint_boxes(output, combined_mask):
-    if input == 'output':
-        mask_paintedboxes = paint_output_boxes(output, combined_mask)
-    elif input == 'target':
-
-        _, _, H, W = combined_mask.shape
-        mask_paintedboxes = copy.copy(combined_mask)
-        for box in output['boxes']:
-            x1, y1, x2, y2 = box.int().tolist()
-            x1 = max(0, min(x1, W-1))
-            x2 = max(0, min(x2, W-1))
-            y1 = max(0, min(y1, H-1))
-            y2 = max(0, min(y2, H-1))
-            mask_paintedboxes[:, :, y1:y2, x1] = 1
-            mask_paintedboxes[:, :, y1:y2, x2] = 1
-            mask_paintedboxes[:, :, y1, x1:x2] = 1
-            mask_paintedboxes[:, :, y2, x1:x2] = 1
-
-    return mask_paintedboxes
-
-
-def combine_resize_submasks(output, target_image):
+def combine_resize_submasks(output, target_image, threshold):
     """ Combines all submasks into a full image,
      """
 
-    masks = output['masks']  # (N, 1, H_pred, W_pred)
+    if threshold is not None:
+        keep = output["scores"] > threshold
+        masks = output["masks"][keep]
+    else:
+        masks = output["masks"]
 
     if masks.ndim == 4:
         masks = masks.squeeze(1)
@@ -218,14 +227,9 @@ class ForgeryDataset(Dataset):
 
         # Apply transformations
         if self.transform:
-            #print("Transforming: ", image.shape, image.dtype, image.min(), image.max())
             transformed = self.transform(image=image, mask=mask)
-
-
             image = transformed['image']
             mask = transformed['mask']
-            #print("Transformed: ", image.shape, image.dtype, image.min(), image.max())
-
         else:
             image = F_transforms.to_tensor(image)
             mask = torch.tensor(mask, dtype=torch.uint8)
@@ -234,6 +238,8 @@ class ForgeryDataset(Dataset):
         if sample['is_forged'] and mask.sum() > 0:
             boxes, labels, masks = self.mask_to_boxes(mask)
 
+            """
+            PAINTING FILLED BOXES ON LOAD
             # build instance masks from boxes (cheap, done once)
             N = len(boxes)
             H, W = mask.shape
@@ -242,6 +248,7 @@ class ForgeryDataset(Dataset):
             for i, box in enumerate(boxes):
                 x1, y1, x2, y2 = box.int()
                 instance_masks[i, y1:y2, x1:x2] = 1
+            """
 
             target = {
                 'boxes': boxes,
