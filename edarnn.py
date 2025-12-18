@@ -326,7 +326,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "./data/natural_frozen_100epochs.pth"
-    num_epochs = 100
+    num_epochs = 300
     batch = 1
 
     feat_ex = [0]
