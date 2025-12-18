@@ -20,7 +20,7 @@ Therefore it is also hard to debug which parts are failing, although we managed 
 2. Then we train only the mask segmentation (we freeze the backbone) and try to overfit 5 images.
 3. Unfreeze everything, train on the whole dataset.
    
-![example](https://raw.githubusercontent.com/andres/repo-name/main/images/10017.png)
+![example](https://raw.githubusercontent.com/andres/Mask-R-CNN/main/images/10017.png)
 
 
 
