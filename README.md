@@ -1,6 +1,6 @@
 # Mask-R-CNN for image-manipulation detection (current state)
 
-<img src="images/out_target_mask" width="400">
+<img src="images/out_target_mask.png" width="400">
 
 
 This repository presents an experimental Mask R-CNN–based approach for detecting image manipulations, developed as part of the Kaggle competition Recod.ai / LUC – Scientific Image Forgery Detection. The project documents both the implementation, parameter exploration and the systematic **debugging** process of a complex instance segmentation pipeline.
@@ -50,9 +50,11 @@ To validate correctness, we follow a strict progression:
    - Only attempted once earlier stages succeed
 
 Weights are reused between steps to enable incremental fine-tuning.
+
 ## Quick EDA:
 - There are 5K images to train and 50 images for testing
 - The problem has a pixel-imbalance, around 5% of the pixels are forged and are therefore `1`s in their corresponding masks.
+- The signal is very weak, the algorithm has to learn to detect discontinuities in noise along copy-pasted edges, contrasts in brightness etc.
 
 ## Code:
 Run
@@ -128,6 +130,6 @@ Plotting the boxes for different epochs also did not highlight any new informati
 <img src="images/boxes_training50.png" width="400">
 <img src="images/boxes_training80.png" width="400">
 
-and it seems that, despite decreasing error, the boxes do no further improve from epoch 50 on.
+and it seems that, despite decreasing error, the boxes do not improve a lot from epoch 50 on.
 
 
