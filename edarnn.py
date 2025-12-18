@@ -134,7 +134,7 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     # Anchor generator
     anchor_generator = AnchorGenerator(
         sizes=((16, 32, 64, 128, 256),),
-        aspect_ratios=((0.5, 1.0, 2.0),)
+        aspect_ratios=((0.3, 0.5, 1.0, 2.0, 3.),)
     )
 
     # ROI pools
@@ -155,9 +155,9 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         mask_roi_pool=mask_roi_pooler,
         min_size=512,
         max_size=512,
-        rpn_pre_nms_top_n_train=1000,
+        rpn_pre_nms_top_n_train=2000,
         rpn_pre_nms_top_n_test=1000,
-        rpn_post_nms_top_n_train=200,
+        rpn_post_nms_top_n_train=2000,
         rpn_post_nms_top_n_test=200,
         box_detections_per_img=100
     )
@@ -169,11 +169,12 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
     for p in model.roi_heads.mask_predictor.parameters():
         p.requires_grad = False
     model.roi_heads.mask_on = False
+    model.roi_heads.score_thresh = 0.000
 
     """
     for p in model.backbone.parameters():
         p.requires_grad = False
-    model.roi_heads.score_thresh = 0.000
+
     """
 
     return model
@@ -196,33 +197,9 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
             if boxes.ndim == 1:
                 boxes = boxes.unsqueeze(0)
 
-            N = len(t['boxes'])
-            target_masks = torch.zeros((N, 512, 512), dtype=torch.uint8)
-
-
-            """for i, box in enumerate(t["boxes"]):
-                x1, y1, x2, y2 = box.int()
-                target_masks[i, y1:y2, x1:x2] = 1
-
-            t["masks"] = target_masks"""
-
-
         # Forward pass
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
-
-        model.eval()
-
-        with torch.no_grad():
-            output = model(images)
-            scores = output[0]["scores"]
-            boxes  = output[0]["boxes"]
-
-            if len(scores) > 0:
-                print(
-                    f"top score: {scores.max().item():.4f}, "
-                    f"num boxes: {len(scores)}"
-                )
 
         model.train()
         # Backward pass
@@ -279,7 +256,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
         print(" LOADING: "+machinepath)
     model.to(device)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=0.001)
+    # 3️⃣ Create the optimizer
+    optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.001)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
     train_losses = []
