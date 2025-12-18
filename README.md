@@ -87,7 +87,7 @@ We will see that one of the four models outperforms the others:
 
 So we train it for 600 epochs:
 
-<img src="data/frozen_natural_600/600.png" width="400">
+<img src="images/frozen_natural_600/600.png" width="400">
 
 then run:
 ```
