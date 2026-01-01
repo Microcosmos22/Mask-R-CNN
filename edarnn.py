@@ -303,8 +303,8 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 20, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 20, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 50, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 50, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
 
             plt.clf()

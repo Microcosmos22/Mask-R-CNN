@@ -86,14 +86,11 @@ def rle_decode(mask_rle: str, shape: tuple[int, int]) -> npt.NDArray:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model and weights
-model = create_light_mask_rcnn()
+model = get_coco_initialized_model(num_classes=2)
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("./images/frozen_painted/frozen_painted_100epochs.pth", map_location=device)  # load directly to device
-
-print("Model weights: ")
-print(model.load_state_dict(state, strict=False))
-
+state = torch.load("../pretrained.pth", map_location=device)
 model.load_state_dict(state)
+
 model.to(device)  # ensure model is on same device as inputs
 model.eval()
 
