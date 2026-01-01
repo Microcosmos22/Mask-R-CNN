@@ -33,6 +33,11 @@ import json
 import os
 from sklearn.model_selection import GridSearchCV
 
+from torchvision.models.detection import maskrcnn_resnet50_fpn
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
+
+
 
 warnings.filterwarnings('ignore')
 
@@ -93,89 +98,25 @@ train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
+def get_coco_initialized_model(num_classes=2):
+    # Load full COCO-trained Mask R-CNN
+    model = maskrcnn_resnet50_fpn(weights="DEFAULT")
 
-def create_light_mask_rcnn(feat_ex = 0, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=1,
-rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, num_classes = 2):
-    if feat_ex == 0:
-        backbone = torchvision.models.mobilenet_v3_small(pretrained=True).features
-        in_ch = 576
-        backbone.out_channels = 256
-        out_ch = 256
-    elif feat_ex == 1:
-        backbone = torchvision.models.mobilenet_v3_large(pretrained=True).features
-        in_ch = 960
-        backbone.out_channels = 256
-        out_ch = 256
-    elif feat_ex == 2:
-        resnet = torchvision.models.resnet34(pretrained=True)
-        backbone = nn.Sequential(
-            resnet.conv1,
-            resnet.bn1,
-            resnet.relu,
-            resnet.maxpool,
-            resnet.layer1,
-            resnet.layer2,
-            resnet.layer3,
-            resnet.layer4,
-        )
-        in_ch = 512
-        backbone.out_channels = 512   # resnet3 4's final feature depth
-        out_ch = 512
-
-    # extracts characteristics from an image
-    backbone = nn.Sequential(
-        backbone,
-        nn.Conv2d(in_ch, out_ch, kernel_size=1),
-        nn.ReLU(inplace=True)
-    )
-    backbone.out_channels = out_ch
-
-
-    # Anchor generator
-    anchor_generator = AnchorGenerator(
-        sizes=((16, 32, 64, 128, 256),),
-        aspect_ratios=((0.3, 0.5, 1.0, 2.0, 3.),)
+    # ---- Replace box predictor (class + bbox) ----
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(
+        in_features,
+        num_classes
     )
 
-    # ROI pools
-    roi_pooler = torchvision.ops.MultiScaleRoIAlign(
-        featmap_names=['0'],
-        output_size=5,
-        sampling_ratio=samplR
+    # ---- Replace mask predictor ----
+    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    hidden_layer = 256
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(
+        in_features_mask,
+        hidden_layer,
+        num_classes
     )
-
-    mask_roi_pooler = torchvision.ops.MultiScaleRoIAlign(featmap_names=['0'], output_size=56, sampling_ratio=2)
-    #model = MaskRCNN(backbone, num_classes=2, mask_roi_pool=mask_roi_pool)
-
-    model = MaskRCNN(
-        backbone,
-        num_classes=num_classes,
-        rpn_anchor_generator=anchor_generator,
-        box_roi_pool=roi_pooler,
-        mask_roi_pool=mask_roi_pooler,
-        min_size=512,
-        max_size=512,
-        rpn_pre_nms_top_n_train=2000,
-        rpn_pre_nms_top_n_test=1000,
-        rpn_post_nms_top_n_train=2000,
-        rpn_post_nms_top_n_test=200,
-        box_detections_per_img=100
-    )
-
-
-    for p in model.roi_heads.mask_head.parameters():
-        p.requires_grad = False
-
-    for p in model.roi_heads.mask_predictor.parameters():
-        p.requires_grad = False
-    model.roi_heads.mask_on = False
-    model.roi_heads.score_thresh = 0.000
-
-    """
-    for p in model.backbone.parameters():
-        p.requires_grad = False
-
-    """
 
     return model
 
@@ -247,18 +188,23 @@ def save_model_safe(model, path, max_retries=5, delay=0.5):
     raise PermissionError(f"Could not write to {path} after {max_retries} retries")
 
 
-def train_parameters(train_loader, val_loader, eval_loader, machinepath, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
+def train_parameters(train_loader, val_loader, eval_loader, model, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
-    model = create_light_mask_rcnn(feat_ex, lr, weight_decay, step_size, gamma, samplR,
-    rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test)
-    if os.path.isfile(machinepath):
-        model.load_state_dict(torch.load(machinepath))
-        print(" LOADING: "+machinepath)
+
+    if model is not None:
+        print(" LOADING MODEL: ")
+        for p in model.backbone.parameters():
+            p.requires_grad = True
+    else:
+        model = get_coco_initialized_model()
+        for p in model.backbone.parameters():
+            p.requires_grad = False
     model.to(device)
 
     # 3️⃣ Create the optimizer
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.001)
+    #optimizer = torch.optim.AdamW(params,lr=1e-4,weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
     train_losses = []
@@ -325,7 +271,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "./data/natural_frozen_100epochs.pth"
+    machinepath = "../pretrained.pth"
     num_epochs = 300
     batch = 1
 
@@ -357,7 +303,8 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, machinepath, num_epochs, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 20, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 20, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
 
             plt.clf()
