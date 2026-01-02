@@ -62,7 +62,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(2)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(4)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -191,19 +191,24 @@ def save_model_safe(model, path, max_retries=5, delay=0.5):
 def train_parameters(train_loader, val_loader, eval_loader, model, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
 rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
 
+
     if model is not None:
+        """ UNFROZEN """
+        params = [p for p in model.parameters() if p.requires_grad]
         print(" LOADING MODEL: ")
         for p in model.backbone.parameters():
             p.requires_grad = True
+        optimizer = torch.optim.SGD(params, lr=1e-5, momentum=0.9, weight_decay=1e-4)
     else:
+        """ FROZEN """
         model = get_coco_initialized_model()
         for p in model.backbone.parameters():
             p.requires_grad = False
+        optimizer = torch.optim.SGD(
+            [p for p in model.parameters() if p.requires_grad],
+            lr=1e-5, momentum=0.9, weight_decay=1e-4)
     model.to(device)
 
-    # 3️⃣ Create the optimizer
-    params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.001)
     #optimizer = torch.optim.AdamW(params,lr=1e-4,weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
 
@@ -303,8 +308,8 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 50, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 50, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 150, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 150, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
 
 
             plt.clf()
