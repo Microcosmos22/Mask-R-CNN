@@ -62,7 +62,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(4)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(3)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -146,6 +146,7 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
         # Backward pass
         optimizer.zero_grad()
         losses.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         optimizer.step()
 
         total_loss += losses.item()
@@ -188,25 +189,49 @@ def save_model_safe(model, path, max_retries=5, delay=0.5):
     raise PermissionError(f"Could not write to {path} after {max_retries} retries")
 
 
-def train_parameters(train_loader, val_loader, eval_loader, model, num_epochs, feat_ex = 0, out_ch=256, lr = 0.001, weight_decay = 0.001, step_size = 5, gamma = 0.1, samplR=2,
-rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200, early = False):
+def train_parameters(train_loader, val_loader, eval_loader, machinepath, model, mode, num_epochs):
 
 
     if model is not None:
-        """ UNFROZEN """
-        params = [p for p in model.parameters() if p.requires_grad]
         print(" LOADING MODEL: ")
-        for p in model.backbone.parameters():
-            p.requires_grad = True
-        optimizer = torch.optim.SGD(params, lr=1e-5, momentum=0.9, weight_decay=1e-4)
+        state = torch.load(machinepath, map_location="cpu")
+        model.load_state_dict(state, strict=False)
     else:
-        """ FROZEN """
         model = get_coco_initialized_model()
+
+
+    if mode == 1:
+        """ Train box+mask heads """
         for p in model.backbone.parameters():
             p.requires_grad = False
+
+        params = [p for p in model.parameters() if p.requires_grad]
+        optimizer = torch.optim.SGD(params, lr=5e-3, momentum=0.9)
+    elif mode == 2:
+        """ Train RPN + ROI heads """
+        for p in model.rpn.parameters():
+            p.requires_grad = True
+        for p in model.roi_heads.parameters():
+            p.requires_grad = True
+
+        for p in model.backbone.body.parameters():
+            p.requires_grad = False
+
         optimizer = torch.optim.SGD(
             [p for p in model.parameters() if p.requires_grad],
-            lr=1e-5, momentum=0.9, weight_decay=1e-4)
+            lr=1e-3, momentum=0.9
+        )
+    elif mode == 3:
+        """ Train: heads + RPN + top ResNet blocks """
+        for p in model.backbone.body.layer4.parameters():
+            p.requires_grad = True
+
+        optimizer = torch.optim.SGD(
+            [p for p in model.parameters() if p.requires_grad],
+            lr=1e-4, momentum=0.9
+        )
+
+
     model.to(device)
 
     #optimizer = torch.optim.AdamW(params,lr=1e-4,weight_decay=1e-4)
@@ -249,6 +274,8 @@ rpn_pre_train = 1000, rpn_pre_test = 1000, rpn_post_train=200, rpn_post_test=200
 
             best_iou = np.mean(iou)
             best_dice = np.mean(dice)
+
+        early = False
 
         if not early:
             epochs_no_improve = 0
@@ -308,9 +335,19 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, None, 150, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
-            model, train_losses, val_losses, rcnn_losses = train_parameters(train_loader, val_loader, None, model, 150, combo[0], combo[1], combo[2], combo[3], combo[4], combo[5], samplR, rpn_pre_train, rpn_pre_test, rpn_post_train, rpn_post_test, False)
+            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, None, 1, 50)
+            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepath, model, 2, 20)
+            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepath, model, 3, 30)
 
+
+            train_losses = train_losses1 + train_losses2 + train_losses3
+            val_losses   = val_losses1   + val_losses2   + val_losses3
+
+            # rcnn_losses is (N, 3) → concatenate along time
+            rcnn_losses = np.concatenate(
+                [rcnn_losses1, rcnn_losses2, rcnn_losses3],
+                axis=0
+            )
 
             plt.clf()
             plt.plot(np.log(train_losses), label="Log Train Err")
