@@ -62,7 +62,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-full_dataset_subset = Subset(full_dataset, list(range(3)))  # keeps mapping: [0,1]
+full_dataset_subset = Subset(full_dataset, list(range(12)))  # keeps mapping: [0,1]
 subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
@@ -71,12 +71,18 @@ train_idx, val_idx = train_test_split(
     random_state=42,
     shuffle=False
 )
-"""
+
 print("\nTRAIN FILES:")
 for idx in train_idx:
     orig_idx = subset_indices[idx]     # map subset index → original dataset index
     filename = full_dataset.get_filename(orig_idx)
-    print(str(orig_idx)+": ", filename['image_id']+".png")"""
+    image, target, path = full_dataset[orig_idx]
+    if len(target["boxes"]) == 0:
+        authentic = True
+    else:
+        authentic = False
+        print(target["boxes"])
+    print(f" {orig_idx}: {filename['image_id']}.png.   Authentic: {authentic}")
 
 
 
@@ -189,10 +195,10 @@ def save_model_safe(model, path, max_retries=5, delay=0.5):
     raise PermissionError(f"Could not write to {path} after {max_retries} retries")
 
 
-def train_parameters(train_loader, val_loader, eval_loader, machinepath, model, mode, num_epochs):
+def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, num_epochs):
 
 
-    if model is not None:
+    if not os.path.exists(machinepath):
         print(" LOADING MODEL: ")
         state = torch.load(machinepath, map_location="cpu")
         model.load_state_dict(state, strict=False)
@@ -303,7 +309,7 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "../pretrained.pth"
+    machinepath = "../pretrained_FP.pth"
     num_epochs = 300
     batch = 1
 
@@ -335,9 +341,9 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tqdm(train_loader, desc="Validation")):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, None, 1, 50)
-            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepath, model, 2, 20)
-            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepath, model, 3, 30)
+            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 1, 50)
+            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepath, 2, 20)
+            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepath, 3, 30)
 
 
             train_losses = train_losses1 + train_losses2 + train_losses3
