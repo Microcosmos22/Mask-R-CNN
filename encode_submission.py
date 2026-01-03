@@ -88,7 +88,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and weights
 model = get_coco_initialized_model(num_classes=2)
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("../pretrained.pth", map_location=device)
+state = torch.load("../pretrained_1img.pth", map_location=device)
 model.load_state_dict(state)
 
 model.to(device)  # ensure model is on same device as inputs
@@ -103,15 +103,13 @@ test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=Fals
 
 
 if __name__ == "__main__":
-    train_loader = DataLoader(full_dataset, batch_size=4, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
 
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
     plot = True
 
 
 
-    for idx, (image, target, filename) in enumerate(train_loader):
+    for idx, (image, target, filename) in enumerate(tenimg_loader):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)

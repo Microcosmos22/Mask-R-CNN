@@ -139,6 +139,8 @@ class ForgeryDataset(Dataset):
 
         # Forged images
         for file in sorted(os.listdir(forged_path)):
+            if file[0] == ".":
+                continue
             img_path = os.path.join(forged_path, file)
             base_name = file.split('.')[0]
             mask_path = os.path.join(masks_path, f"{base_name}.npy")
@@ -153,6 +155,8 @@ class ForgeryDataset(Dataset):
         # Authentic images
         if (authentic_path is not None):
             for file in sorted(os.listdir(authentic_path)):
+                if file[0] == ".":
+                    continue
                 img_path = os.path.join(authentic_path, file)
                 base_name = file.split('.')[0]
                 mask_path = os.path.join(masks_path, f"{base_name}.npy")
@@ -337,7 +341,13 @@ paths = {
         'train_authentic': os.path.join(base_path, "train_images/authentic"),
         'train_forged': os.path.join(base_path, "train_images/forged"),
         'train_masks': os.path.join(base_path, "train_masks"),
-        'test_images': os.path.join(base_path, "test_images")
+        'test_images': os.path.join(base_path, "test_images"),
+    }
+
+tenimg_paths = {
+        'train_authentic': os.path.join(base_path, "train_images/10img/authentic"),
+        'train_forged': os.path.join(base_path, "train_images/10img/forged"),
+        'train_masks': os.path.join(base_path, "train_images/10img/masks")
     }
 
 # Transformations for learning
