@@ -259,13 +259,18 @@ class ForgeryDataset(Dataset):
             }
         else:
             # For authentic images or images without masks
+            H, W = image.shape[1:]
+            # Example: one box covering the whole image
+            boxes = torch.tensor([[0.0, 0.0, W, H]], dtype=torch.float32)
+            labels = torch.zeros((1,), dtype=torch.int64)  # label=0 → background
+            masks = torch.zeros((0, H, W), dtype=torch.uint8)  # no mask
             target = {
-                'boxes': torch.zeros((0, 4), dtype=torch.float32),
-                'labels': torch.zeros(0, dtype=torch.int64),
-                'masks': torch.zeros((0, image.shape[1], image.shape[2]), dtype=torch.uint8),
+                'boxes': boxes,
+                'labels': labels,
+                'masks': masks,
                 'image_id': torch.tensor([idx]),
-                'area': torch.zeros(0, dtype=torch.float32),
-                'iscrowd': torch.zeros((0,), dtype=torch.int64)
+                'area': torch.zeros((1,), dtype=torch.float32),
+                'iscrowd': torch.zeros((1,), dtype=torch.int64)
             }
 
         return image, target, self.samples[idx]['image_path']  # return filename too

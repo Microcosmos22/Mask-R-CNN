@@ -134,6 +134,9 @@ def get_coco_initialized_model(num_classes=2):
 def train_epoch(model, dataloader, optimizer, device, epoch):
     model.train()
     total_loss = 0
+    total_mask_loss = 0
+    total_box_loss  = 0
+    total_cls_loss  = 0
 
     for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Training")):
 
@@ -152,6 +155,8 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
         # Forward pass
         loss_dict = model(images, targets)
         losses = sum(loss for loss in loss_dict.values())
+        #print(f"\nLOSSES: class: {loss_dict['loss_classifier']:.4f}, Mask: {loss_dict['loss_mask']:.4f}, Box regr. {loss_dict['loss_box_reg']:.4f}, objectness: {loss_dict['loss_objectness']:.4f}")
+
 
         model.train()
         # Backward pass
@@ -160,10 +165,17 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)
         optimizer.step()
 
+        # Accumulate totals
         total_loss += losses.item()
+        total_mask_loss += loss_dict['loss_mask'].item()
+        total_box_loss  += loss_dict['loss_box_reg'].item()
+        total_cls_loss  += loss_dict['loss_classifier'].item()
 
-    return total_loss / len(dataloader), loss_dict['loss_mask'].item(), loss_dict['loss_box_reg'], loss_dict['loss_classifier']
-
+    num_batches = len(dataloader)
+    return (total_loss / num_batches,
+            total_mask_loss / num_batches,
+            total_box_loss  / num_batches,
+            total_cls_loss  / num_batches)
 
 def validate_epoch(model, dataloader, device):
     model.train()  # For validation, we use train mode because of the features of Mask R-CNN
@@ -347,7 +359,8 @@ if __name__ == "__main__":
 
         for combo in all_combinations:
 
-            for batch_idx, (images, targets, _) in enumerate(tqdm(tenimg_loader, desc="Validation")):
+            print("TENIMG LOADER: (Boxes, MaskSum)")
+            for batch_idx, (images, targets, _) in enumerate(tenimg_loader):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
             model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(tenimg_loader, None, None, machinepath, 1, 10)
