@@ -72,11 +72,11 @@ tenimg_dataset = ForgeryDataset(
 
 tenimg_loader = DataLoader(tenimg_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
-full_dataset_subset = Subset(full_dataset, list(range(12)))  # keeps mapping: [0,1]
-subset_indices = full_dataset_subset.indices  # ← real original dataset indices
+#full_dataset_subset = Subset(full_dataset, list(range(12)))  # keeps mapping: [0,1]
+#subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
 train_idx, val_idx = train_test_split(
-    range(len(full_dataset_subset)),
+    range(len(full_dataset)),
     test_size=0.1,
     random_state=42,
     shuffle=False
@@ -95,8 +95,8 @@ for idx in train_idx:
 """
 
 
-train_subset = Subset(full_dataset_subset, train_idx)
-val_subset = Subset(full_dataset_subset, val_idx)
+train_subset = Subset(full_dataset, train_idx)
+val_subset = Subset(full_dataset, val_idx)
 
 eval_subset = torch.utils.data.Subset(train_subset, [0])
 
@@ -222,8 +222,6 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
         model.load_state_dict(state, strict=False)
 
 
-
-
     if mode == 1:
         """ Train box+mask heads """
         for p in model.backbone.parameters():
@@ -246,7 +244,7 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
             lr=1e-3, momentum=0.9
         )
     elif mode == 3:
-        """ Train: heads + RPN + top ResNet blocks """
+        """ Train also top Encoder blocks """
         for p in model.backbone.body.layer4.parameters():
             p.requires_grad = True
 
@@ -254,6 +252,13 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
             [p for p in model.parameters() if p.requires_grad],
             lr=1e-4, momentum=0.9
         )
+    else:
+        for p in model.rpn.parameters():
+            p.requires_grad = False
+
+        optimizer = torch.optim.SGD(
+            [p for p in model.parameters() if p.requires_grad],
+            lr=5e-3, momentum=0.9)
 
 
     model.to(device)
@@ -276,7 +281,7 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
         """ Train, validate, evaluate """
         train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device, epoch)
 
-        rcnn_losses.append([loss_mask, loss_box_reg.detach().numpy(), loss_classifier.detach().numpy()])
+        rcnn_losses.append([loss_mask, loss_box_reg, loss_classifier])
         train_losses.append(train_loss)
 
         if val_loader is not None:
@@ -304,7 +309,7 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
 
         if not early:
             epochs_no_improve = 0
-            return model, train_losses, val_losses, np.asarray(rcnn_losses)
+            save_model_safe(model, machinepathout)
 
 
         if early:
@@ -329,8 +334,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "../pretrained_1img.pth"
-    machinepathout = "../pretrained_10img.pth"
+    machinepath = "../pretrained_10img.pth"
+    machinepathout = "../pretrained_full.pth"
     num_epochs = 300
     batch = 1
 
@@ -363,9 +368,9 @@ if __name__ == "__main__":
             for batch_idx, (images, targets, _) in enumerate(tenimg_loader):
                 print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(tenimg_loader, None, None, machinepath, 1, 10)
-            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(tenimg_loader, None, None, machinepathout, 2, 30)
-            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(tenimg_loader, None, None, machinepathout, 3, 30)
+            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 4, 50)
+            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 30)
+            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 30)
 
 
             train_losses = train_losses1 + train_losses2 + train_losses3

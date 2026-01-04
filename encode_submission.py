@@ -88,7 +88,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and weights
 model = get_coco_initialized_model(num_classes=2)
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("../pretrained_1img.pth", map_location=device)
+state = torch.load("../pretrained_10img.pth", map_location=device)
 model.load_state_dict(state)
 
 model.to(device)  # ensure model is on same device as inputs
@@ -119,7 +119,7 @@ if __name__ == "__main__":
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
             target_mask = combine_resize_submasks(target, raw_img, threshold = None)
-            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = None)
+            outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.5)
 
             ######
             target_mask_norm = resize_mask(target_mask.unsqueeze(0), image) # to normalized
