@@ -60,7 +60,7 @@ def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
 
     # --- paint top-k predictions ---
     for i in range(min(topk, len(pred_boxes))):
-        print(f"Box {i}: score = {scores[i].item():.4f}")
+        #print(f"Box {i}: score = {scores[i].item():.4f}")
         paint_box(combined_mask, *pred_boxes[i])
 
     # --- paint GT boxes ---
@@ -109,6 +109,9 @@ def resize_mask(combined_mask, target_image):
 def combine_resize_submasks(output, target_image, threshold):
     """ Combines all submasks into a full image,
      """
+    
+    if len(output["boxes"]) == 0:
+        return torch.zeros(target_image.shape[0], target_image.shape[1])
 
     if threshold is not None:
         keep = output["scores"] > threshold
@@ -122,7 +125,7 @@ def combine_resize_submasks(output, target_image, threshold):
     combined_mask = masks.sum(dim=0)               # (H, W)
     combined_mask = torch.clamp(combined_mask, 0, 1)
     combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
-    print(f" Combining {len(masks)} masks and resizing to original")
+    #print(f" Combining {len(masks)} masks and resizing to original")
 
     mask_resized = resize_mask(combined_mask, target_image)
 
@@ -175,11 +178,13 @@ class ForgeryDataset(Dataset):
         sample = self.samples[idx]
         image_raw = Image.open(sample['image_path']).convert('RGB')
         image_raw = np.array(image_raw)  # (H, W, 3)
-        mask = np.load(sample['mask_path'])
 
-        print(self.samples[idx]['image_path'])
-
-        return image_raw, mask
+        if os.path.exists(sample['mask_path']):
+            mask = np.load(sample['mask_path'])
+            print(self.samples[idx]['image_path'])
+            return image_raw, mask
+        else:
+            return image_raw, np.asarray([0])
 
     def get_image_props(self, image, mask):
         boxes, labels, masks = self.mask_to_boxes(mask, plot = False)

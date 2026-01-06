@@ -53,7 +53,7 @@ test_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 full_dataset = ForgeryDataset(
     paths['train_authentic'],
@@ -62,7 +62,7 @@ full_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-tenimg_dataset = ForgeryDataset(
+"""tenimg_dataset = ForgeryDataset(
     tenimg_paths['train_authentic'],
     tenimg_paths['train_forged'],
     tenimg_paths['train_masks'],
@@ -71,7 +71,7 @@ tenimg_dataset = ForgeryDataset(
 
 
 tenimg_loader = DataLoader(tenimg_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-
+"""
 #full_dataset_subset = Subset(full_dataset, list(range(12)))  # keeps mapping: [0,1]
 #subset_indices = full_dataset_subset.indices  # ← real original dataset indices
 
@@ -105,9 +105,9 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-val_loader = DataLoader(val_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
-eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
 def get_coco_initialized_model(num_classes=2):
     # Load full COCO-trained Mask R-CNN
@@ -334,8 +334,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "../pretrained_10img.pth"
-    machinepathout = "../pretrained_full.pth"
+    machinepath = "../pretrained_full.pth"
+    machinepathout = "../pretrained_final.pth"
     num_epochs = 300
     batch = 1
 
@@ -364,13 +364,10 @@ if __name__ == "__main__":
 
         for combo in all_combinations:
 
-            print("TENIMG LOADER: (Boxes, MaskSum)")
-            for batch_idx, (images, targets, _) in enumerate(tenimg_loader):
-                print(len(targets[0]["boxes"]), targets[0]["masks"].sum())
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 4, 50)
-            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 30)
-            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 30)
+            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 1, 8)
+            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 15)
+            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 15)
 
 
             train_losses = train_losses1 + train_losses2 + train_losses3

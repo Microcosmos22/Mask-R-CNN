@@ -78,9 +78,6 @@ def soft_dice(pred_mask, target, verbose=False):
         pred_mask = pred_mask.squeeze(0).cpu()
     pred_flat = pred_mask.contiguous().view(-1).cpu()
 
-    if verbose:
-        print(f"Target masks shape: {true_mask.shape}, sum per mask: {true_mask.sum()}")
-
     full_true_mask = (true_mask.sum(dim=0) > 0).float()
     true_flat = full_true_mask.contiguous().view(-1)
 
@@ -93,8 +90,6 @@ def soft_dice(pred_mask, target, verbose=False):
     denominator = pred_flat.sum() + true_flat.sum()
     dice = (2.0 * intersection + 1e-6) / (denominator + 1e-6)
 
-    if verbose:
-        print(f"Intersection: {intersection:.4f}, Denominator: {denominator:.4f}, DICE: {dice:.6f}")
 
     return dice.item()
 
@@ -165,45 +160,71 @@ def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.
 
     return iou_scores, dice_scores, properties
 
+# Make sure device is consistent
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+# Load model and weights
+model = get_coco_initialized_model(num_classes=2)
+#state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
+state = torch.load("../pretrained_full.pth", map_location=device)
+model.load_state_dict(state)
+
+model.to(device)  # ensure model is on same device as inputs
+model.eval()
+
+base_path = "../recodai-luc-scientific-image-forgery-detection/"
+
+test_dataset = ForgeryDataset(paths['train_authentic'],paths['train_forged'],paths['train_masks'],)
+
+test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
+
+
+
 if __name__ == "__main__":
-    """ EVALUATE THE IOU AND DICE """
-    model = create_light_mask_rcnn()                 # create model
-    model.load_state_dict(torch.load("mask_rcnn_best.pth", map_location="cpu"))
-    model.eval()
-    model.to(device)
 
-    base_path = "../recodai-luc-scientific-image-forgery-detection/"
-    test_dataset = ForgeryDataset(
-        None,
-        os.path.join(base_path, "supplemental_images"),
-        os.path.join(base_path, "supplemental_masks"),
-        transform=train_transform
-    )
-    test_dataset = Subset(train_subset, list(range(2)))
+    """ ONLY PLOTS THE FIRST ELEM IN BATCH """
+    plot = False
+    dices = []
 
 
-    # Creating dataloaders
-    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+    for idx, (image, target, filename) in enumerate(train_loader):
+        image = image[0]    # take first item from batch
+        target = target[0]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
 
-    print(f"Train samples: {len(test_dataset)}")
+
+        with torch.no_grad():
+            outputs = model(image.unsqueeze(0).to(device))  # forward pass
+
+            if ((len(outputs[0]["boxes"]) == 0) and (len(target["boxes"]) == 0)):
+                dice = 1
+                print("match")
+                dices.append(dice)
+            else:
+                target_mask = combine_resize_submasks(target, raw_img, threshold = None)
+                outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.6)
 
 
-    iou, dice, props = evaluate_segmentation(model, test_loader, device)
+                dice = soft_dice(outputs_orig_size, target_mask, True)
+                print(f"\nIdx: {idx} DICE: {dice:.4f}")
+                dices.append(dice)
 
-    mean_iou = np.mean(iou) if iou else 0.0
-    mean_dice = np.mean(dice) if dice else 0.0
+                #print(outputs[0]["boxes"])
+                #print(target["boxes"])
 
-    print(f"\nMean IoU: {mean_iou:.4f}, Mean Dice: {mean_dice:.4f}")
 
-    sizes = props["Npixels"]
-    wn = props["WhiteNess"]
 
-    """
-    print(sizes)
-    plt.scatter(sizes, iou)
-    plt.scatter(sizes, dice)
-    plt.show()
+            if idx > 100:
+                break
 
-    plt.scatter(wn, iou)
-    plt.scatter(wn, dice)
-    plt.show()"""
+
+    print(" MEAN DICE: ")
+    print(np.mean(dices), np.std(dices))
+
+    # Prepare submission
+
+    """submission = {
+        "case_id": filename[0],
+        "submission": rle_encode([outputs_orig_size])
+    }
+"""

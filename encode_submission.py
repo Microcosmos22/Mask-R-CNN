@@ -31,14 +31,22 @@ def _rle_encode_jit(x: npt.NDArray, fg_val: int = 1) -> list[int]:
     return run_lengths
 
 
-def rle_encode(masks: list[npt.NDArray], fg_val: int = 1) -> str:
-    """
-    Adapted from contrails RLE https://www.kaggle.com/code/inversion/contrails-rle-submission
-    Args:
-        masks: list of numpy array of shape (height, width), 1 - mask, 0 - background
-    Returns: run length encodings as a string, with each RLE JSON-encoded and separated by a semicolon.
-    """
-    return ';'.join([json.dumps(_rle_encode_jit(x, fg_val)) for x in masks])
+def rle_encode(masks, fg_val: int = 1) -> str:
+    # single mask H×W
+    if hasattr(masks, "shape") and len(masks.shape) == 2:
+        if hasattr(masks, "cpu"):
+            masks = masks.detach().cpu().numpy()
+        masks = (masks > 0.5).astype(np.uint8)
+        return json.dumps(_rle_encode_jit(masks, fg_val))
+
+    # list of masks
+    rles = []
+    for x in masks:
+        if hasattr(x, "cpu"):
+            x = x.detach().cpu().numpy()
+        x = (x > 0.5).astype(np.uint8)
+        rles.append(json.dumps(_rle_encode_jit(x, fg_val)))
+    return ";".join(rles)
 
 
 @numba.njit
@@ -88,7 +96,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and weights
 model = get_coco_initialized_model(num_classes=2)
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("../pretrained_10img.pth", map_location=device)
+state = torch.load("../pretrained_full.pth", map_location=device)
 model.load_state_dict(state)
 
 model.to(device)  # ensure model is on same device as inputs
@@ -103,13 +111,18 @@ test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=Fals
 
 
 if __name__ == "__main__":
+    from pathlib import Path
 
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
-    plot = True
+    plot = False
+    dices = []
+    submission = {
+        "case_id": [],
+        "annotation": []
+    }
 
 
-
-    for idx, (image, target, filename) in enumerate(tenimg_loader):
+    for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
@@ -129,6 +142,9 @@ if __name__ == "__main__":
 
             dice = soft_dice(outputs_orig_size, target_mask, True)
             print(f"\nIdx: {idx} DICE: {dice:.4f}")
+            dices.append(dice)
+
+
 
             if plot:
 
@@ -152,11 +168,23 @@ if __name__ == "__main__":
 
                 plt.show(block=True)
 
+            if (len(outputs[0]["boxes"]) == 0):
+                submission["annotation"].append("authentic")
+            else:
+                print(outputs_orig_size.shape)
+                submission["annotation"].append(rle_encode(outputs_orig_size))
+                print(rle_encode(outputs_orig_size))
 
-            # Prepare submission
-            """
-            submission = {
-                "case_id": filename[0],
-                "submission": rle_encode([outputs_orig_size])
-            }
-            """
+            imagename = full_dataset.get_filename(idx)["image_id"]
+            submission["case_id"].append(Path(imagename).stem)
+
+
+    print(" MEAN DICE: ")
+    print(np.mean(dices), np.std(dices))
+
+    # Prepare submission
+
+    submission = {
+        "case_id": filename[0],
+        "submission": rle_encode([outputs_orig_size])
+    }
