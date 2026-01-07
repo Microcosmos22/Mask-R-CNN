@@ -118,48 +118,6 @@ def binary_dice(pred_mask, true_mask, debug=True):
 
     return dice
 
-def evaluate_segmentation(model, dataloader, device, firstN = None, threshold=0.5, debug=False):
-    """  """
-
-    model.eval()
-    iou_scores = []
-    dice_scores = []
-    properties = defaultdict(list)
-
-    with torch.no_grad():
-        for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Evaluating", disable = debug)):
-            if firstN is not None and idx == firstN:
-                break
-
-            raw_image, raw_mask = full_dataset.get_raw_img_mask(idx)
-
-            images = [img.to(device) for img in images]
-            output = model(images)
-
-            true_mask = full_mask_from_instance_masks(targets[0], raw_image.shape)
-            pred_mask = full_mask_from_instance_masks(output[0], raw_image.shape)
-            #plot_masks(true_mask, pred_mask)
-
-            """
-            # Fetch original untransformed image + mask using the dataset index
-            dataset_index = int(targets[0]['image_id'].item())
-            raw_img, raw_mask = dataloader.get_raw_img_mask(idx)
-
-            # Save properties for later correlation analysis
-            prop = dataloader.get_image_props(raw_img, raw_mask)
-            for key, value in prop.items():
-                properties[key].append(value)
-                #print(properties)
-            """
-            iou_scores.append(binary_iou(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
-            dice_scores.append(binary_dice(pred_mask.cpu().numpy(), true_mask.cpu().numpy()))
-
-            if debug:
-                print(f"Image {idx} with size: {properties['Npixels'][-1]} and whiteness {properties['WhiteNess'][-1]}")
-
-
-    return iou_scores, dice_scores, properties
-
 # Make sure device is consistent
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -179,19 +137,17 @@ test_dataset = ForgeryDataset(paths['train_authentic'],paths['train_forged'],pat
 test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
 
 
-
-if __name__ == "__main__":
-
-    """ ONLY PLOTS THE FIRST ELEM IN BATCH """
-    plot = False
+def evaluate(threshold):
     dices = []
+    img_size = []
+    avg_boxsize = []
+    N_boxes = []
 
 
     for idx, (image, target, filename) in enumerate(train_loader):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
-
 
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
@@ -207,22 +163,51 @@ if __name__ == "__main__":
 
                 dice = soft_dice(outputs_orig_size, target_mask, True)
                 print(f"\nIdx: {idx} DICE: {dice:.4f}")
+
+                print(target["boxes"])
+                boxes_size = []
+
+                for box in target["boxes"]:
+                    size = (box[2]-box[0])*(box[3]-box[1])
+                    boxes_size.append(size)
+
+                N_boxes.append(len(target["boxes"]))
+                img_size.append(raw_img.shape[0]*raw_img.shape[1])
+                avg_boxsize.append(np.mean(boxes_size))
                 dices.append(dice)
 
-                #print(outputs[0]["boxes"])
-                #print(target["boxes"])
+    return np.asarray(dices), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes)
 
 
+if __name__ == "__main__":
 
-            if idx > 100:
-                break
+    """ ONLY PLOTS THE FIRST ELEM IN BATCH """
+    """ mean DICE w.r.t threshold
+    histogram DICES w.r.t image size
+    histogram DICES w.r.t avg submask size
+    histogram DICES w.r.t Number submasks
 
+    """
+    plot = False
+    dices, avg_boxsize, img_size, N_boxes = evaluate(0.5)
 
     print(" MEAN DICE: ")
     print(np.mean(dices), np.std(dices))
 
-    # Prepare submission
+    plt.scatter(avg_boxsize, dices)
+    plt.show()
 
+    plt.scatter(img_size, dices)
+    plt.show()
+
+    plt.scatter(N_boxes, dices)
+    plt.show()
+
+    mask = ~np.isnan(avg_boxsize) & ~np.isnan(dices)
+    corr = np.corrcoef(avg_boxsize[mask], dices[mask])[0, 1]
+    print(corr, np.corrcoef(img_size, dices)[0,1], np.corrcoef(N_boxes, dices)[0,1])
+
+    # Prepare submission
     """submission = {
         "case_id": filename[0],
         "submission": rle_encode([outputs_orig_size])
