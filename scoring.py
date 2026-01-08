@@ -81,10 +81,6 @@ def soft_dice(pred_mask, target, verbose=False):
     full_true_mask = (true_mask.sum(dim=0) > 0).float()
     true_flat = full_true_mask.contiguous().view(-1)
 
-    if verbose:
-        print(f"Pred mask stats -> sum: {pred_flat.sum():.4f}")
-        print(f"Full true mask stats -> sum: {true_flat.sum():.4f}")
-
     # Compute soft dice
     intersection = (pred_flat * true_flat).sum()
     denominator = pred_flat.sum() + true_flat.sum()
@@ -124,7 +120,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # Load model and weights
 model = get_coco_initialized_model(num_classes=2)
 #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-state = torch.load("../pretrained_full.pth", map_location=device)
+state = torch.load("../pretrained_final.pth", map_location=device)
 model.load_state_dict(state)
 
 model.to(device)  # ensure model is on same device as inputs
@@ -136,12 +132,69 @@ test_dataset = ForgeryDataset(paths['train_authentic'],paths['train_forged'],pat
 
 test_loader = torch.utils.data.DataLoader(test_dataset,batch_size=1,shuffle=False,collate_fn=lambda x: tuple(zip(*x)))
 
+def evaluate_allauth():
+    dices = []
+    img_size = []
+    avg_boxsize = []
+    N_boxes = []
+
+    FP_forged_imgs = 0
+    FN_forged_imgs = 0
+    TP_forged_imgs = 0
+    TN_forged_imgs = 0
+
+    true_forged_pixels = 0
+    pred_forged_pixels = 0
+
+
+    for idx, (image, target, filename) in enumerate(train_loader):
+        image = image[0]    # take first item from batch
+        target = target[0]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
+
+        with torch.no_grad():
+
+            if(len(target["boxes"]) == 0 ):
+                dice = 1
+                dices.append(dice)
+                TN_forged_imgs += 1
+
+            elif(len(target["boxes"]) != 0):
+                target_mask = combine_resize_submasks(target, raw_img, threshold = None)
+                outputs_orig_size = np.zeros(target_mask.shape)
+                true_forged_pixels += np.sum(target_mask.cpu().numpy())
+                pred_forged_pixels += 0
+
+                dice = 0
+                boxes_size = []
+
+                for box in target["boxes"]:
+                    size = (box[2]-box[0])*(box[3]-box[1])
+                    boxes_size.append(size)
+
+                FN_forged_imgs += 1
+
+                N_boxes.append(len(target["boxes"]))
+                img_size.append(raw_img.shape[0]*raw_img.shape[1])
+                avg_boxsize.append(np.mean(boxes_size))
+                dices.append(dice)
+
+    return np.asarray(dices), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(pred_forged_pixels/true_forged_pixels), TP_forged_imgs, TN_forged_imgs, FP_forged_imgs, FN_forged_imgs
+
 
 def evaluate(threshold):
     dices = []
     img_size = []
     avg_boxsize = []
     N_boxes = []
+
+    FP_forged_imgs = 0
+    FN_forged_imgs = 0
+    TP_forged_imgs = 0
+    TN_forged_imgs = 0
+
+    true_forged_pixels = 0
+    pred_forged_pixels = 0
 
 
     for idx, (image, target, filename) in enumerate(train_loader):
@@ -153,30 +206,39 @@ def evaluate(threshold):
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
 
             if ((len(outputs[0]["boxes"]) == 0) and (len(target["boxes"]) == 0)):
+                TN_forged_imgs += 1
                 dice = 1
-                print("match")
                 dices.append(dice)
             else:
                 target_mask = combine_resize_submasks(target, raw_img, threshold = None)
-                outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = 0.6)
-
+                outputs_orig_size = combine_resize_submasks(outputs[0], raw_img, threshold = threshold)
+                true_forged_pixels += np.sum(target_mask.cpu().numpy())
+                pred_forged_pixels += np.sum(outputs_orig_size.cpu().numpy())
 
                 dice = soft_dice(outputs_orig_size, target_mask, True)
-                print(f"\nIdx: {idx} DICE: {dice:.4f}")
 
-                print(target["boxes"])
                 boxes_size = []
 
                 for box in target["boxes"]:
                     size = (box[2]-box[0])*(box[3]-box[1])
                     boxes_size.append(size)
 
+                if (len(target["boxes"] == 0) and (len(outputs[0]["boxes"]>0))):
+                    FP_forged_imgs += 1
+                if (len(target["boxes"] > 0) and (len(outputs[0]["boxes"]==0))):
+                    FN_forged_imgs += 1
+                if (len(target["boxes"] > 0) and (len(outputs[0]["boxes"]>0))):
+                    TP_forged_imgs += 1
+
+
+
+
                 N_boxes.append(len(target["boxes"]))
                 img_size.append(raw_img.shape[0]*raw_img.shape[1])
                 avg_boxsize.append(np.mean(boxes_size))
                 dices.append(dice)
 
-    return np.asarray(dices), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes)
+    return np.asarray(dices), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(pred_forged_pixels/true_forged_pixels), TP_forged_imgs, TN_forged_imgs, FP_forged_imgs, FN_forged_imgs
 
 
 if __name__ == "__main__":
@@ -189,27 +251,40 @@ if __name__ == "__main__":
 
     """
     plot = False
-    dices, avg_boxsize, img_size, N_boxes = evaluate(0.5)
 
-    print(" MEAN DICE: ")
-    print(np.mean(dices), np.std(dices))
+    for thresh in [0.8, 0.85, 0.9, 0.95]:
+        dices, avg_boxsize, img_size, N_boxes, pixel_predtrue_proportion, TP_forged_imgs, TN_forged_imgs, FP_forged_imgs, FN_forged_imgs = evaluate(thresh)
 
-    plt.scatter(avg_boxsize, dices)
-    plt.show()
+        print(" MEAN DICE: ")
+        print(np.mean(dices), np.std(dices))
 
-    plt.scatter(img_size, dices)
-    plt.show()
+        """plt.scatter(avg_boxsize, dices)
+        plt.show()
 
-    plt.scatter(N_boxes, dices)
-    plt.show()
+        plt.scatter(img_size, dices)
+        plt.show()
 
-    mask = ~np.isnan(avg_boxsize) & ~np.isnan(dices)
-    corr = np.corrcoef(avg_boxsize[mask], dices[mask])[0, 1]
-    print(corr, np.corrcoef(img_size, dices)[0,1], np.corrcoef(N_boxes, dices)[0,1])
+        plt.scatter(N_boxes, dices)
+        plt.show()"""
 
-    # Prepare submission
-    """submission = {
-        "case_id": filename[0],
-        "submission": rle_encode([outputs_orig_size])
-    }
-"""
+
+        # align lengths FIRST
+        n = min(len(avg_boxsize), len(dices))
+        avg_boxsize = avg_boxsize[:n]
+        dices = dices[:n]
+
+        # now remove NaNs
+        mask = ~np.isnan(avg_boxsize) & ~np.isnan(dices)
+        corr = np.corrcoef(avg_boxsize[mask], dices[mask])[0, 1]
+
+        print(corr, np.corrcoef(img_size, dices)[0,1], np.corrcoef(N_boxes, dices)[0,1])
+        print(f" Pixel pred/true proportion:{pixel_predtrue_proportion}")
+        print(f"FF: {FP_forged_imgs}, FA: {FN_forged_imgs}, TF: {TP_forged_imgs}, TA: {TN_forged_imgs}")
+
+
+        # Prepare submission
+        """submission = {
+            "case_id": filename[0],
+            "submission": rle_encode([outputs_orig_size])
+        }
+        """

@@ -114,7 +114,7 @@ if __name__ == "__main__":
     from pathlib import Path
 
     """ ONLY PLOTS THE FIRST ELEM IN BATCH """
-    plot = False
+    plot = True
     dices = []
     submission = {
         "case_id": [],
@@ -166,7 +166,7 @@ if __name__ == "__main__":
                 ax[0].set_title("Target mask + output boxes")
                 ax[1].set_title(" Output mask")
 
-                plt.show(block=True)
+                plt.savefig(str(idx)+".png")
 
             if (len(outputs[0]["boxes"]) == 0):
                 submission["annotation"].append("authentic")

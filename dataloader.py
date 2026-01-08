@@ -109,7 +109,7 @@ def resize_mask(combined_mask, target_image):
 def combine_resize_submasks(output, target_image, threshold):
     """ Combines all submasks into a full image,
      """
-    
+
     if len(output["boxes"]) == 0:
         return torch.zeros(target_image.shape[0], target_image.shape[1])
 
@@ -181,7 +181,7 @@ class ForgeryDataset(Dataset):
 
         if os.path.exists(sample['mask_path']):
             mask = np.load(sample['mask_path'])
-            print(self.samples[idx]['image_path'])
+            
             return image_raw, mask
         else:
             return image_raw, np.asarray([0])
