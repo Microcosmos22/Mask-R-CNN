@@ -53,7 +53,7 @@ test_dataset = ForgeryDataset(
     transform=train_transform
 )
 
-test_loader = DataLoader(test_dataset, batch_size=2, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, collate_fn=lambda x: tuple(zip(*x)))
 
 full_dataset = ForgeryDataset(
     paths['train_authentic'],
