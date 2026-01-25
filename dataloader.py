@@ -181,7 +181,7 @@ class ForgeryDataset(Dataset):
 
         if os.path.exists(sample['mask_path']):
             mask = np.load(sample['mask_path'])
-            
+
             return image_raw, mask
         else:
             return image_raw, np.asarray([0])
@@ -273,7 +273,7 @@ class ForgeryDataset(Dataset):
                 'iscrowd': torch.zeros((0,), dtype=torch.int64)
             }
 
-        return image, target, self.samples[idx]['image_path']  # return filename too
+        return image, target, self.samples[idx]['image_path'], idx  # return filename too
 
     def mask_to_boxes(self, mask, plot = False):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""

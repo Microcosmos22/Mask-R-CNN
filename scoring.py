@@ -166,10 +166,10 @@ def evaluate(loader, threshold):
     true_forged_pixels = 0
     pred_forged_pixels = 0
 
-    for idx, (image, target, filename) in tqdm(enumerate(loader)):
+    for image, target, filename, idxs in loader:
         image = image[0]    # take first item from batch
         target = target[0]
-        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idxs[0])
 
         with torch.no_grad():
             outputs = model(image.unsqueeze(0).to(device))  # forward pass
