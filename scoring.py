@@ -23,6 +23,7 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 from torch.utils.data import Subset
+from torchvision.ops import box_iou
 
 from dataloader import *
 from edarnn import *
@@ -128,9 +129,48 @@ def of1_score(pred_mask: np.ndarray, gt_mask: np.ndarray, n_pred: int, n_gt: int
     penalty = n_gt / max(n_pred, n_gt) # Penalty for predicting more submasks than there are gt masks
 
     if (precision + recall) > 0:
-        return 2 * penalty * (precision * recall) / (precision + recall)
+        return 2 * penalty * (precision * recall) / (precision + recall), recall
     else:
-        return 0
+        return 0, recall
+
+from torchvision.ops import box_iou
+
+def debug_box_scores(pred, gt, iou_thr=0.5, score_thr=0.5):
+    pred_boxes = pred["boxes"].cpu()
+    gt_boxes = gt["boxes"].cpu()
+
+    if len(gt_boxes) == 0 or len(pred_boxes) == 0:
+        return None
+
+    ious = box_iou(gt_boxes, pred_boxes)  # [G, P]
+    scores = pred["scores"].cpu()          # <--- fix here
+
+    best_iou, best_idx = ious.max(dim=1)
+    best_scores = scores[best_idx]
+
+    gt_covered = (best_iou >= iou_thr) & (best_scores >= score_thr)
+    high_score_gt_recall = gt_covered.float().mean().item()
+
+
+    # False positives = preds not matched to any GT
+    matched_preds = best_idx.unique()
+    fp_mask = torch.ones(len(scores), dtype=torch.bool)
+    fp_mask[matched_preds] = False
+
+    mean_fp_score = scores[fp_mask].mean().item() if fp_mask.any() else 0.0
+    tp_mask = best_iou >= iou_thr
+    mean_tp_score = best_scores[tp_mask].mean().item() if tp_mask.any() else 0.0
+
+
+    return {
+        "gt_high_score_recall": high_score_gt_recall,
+        "mean_tp_score": mean_tp_score,
+        "mean_fp_score": mean_fp_score,
+        "num_preds": len(scores),
+        "num_gt": len(gt["boxes"])
+    }
+
+
 
 def evaluate_allauthentic(loader):
     oF1s = []
@@ -162,11 +202,21 @@ def evaluate(loader, threshold):
     img_size = []
     avg_boxsize = []
     N_boxes = []
+    recalls = []
+    box_recalls = []
 
     true_forged_pixels = 0
     pred_forged_pixels = 0
 
-    for image, target, filename, idxs in loader:
+    box_overlap_scores = {
+        "gt_high_score_recall": [],
+        "mean_tp_score": [],
+        "mean_fp_score": [],
+        "num_preds": [],
+        "num_gt": [],
+    }
+
+    for image, target, filename, idxs in tqdm(loader):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idxs[0])
@@ -181,10 +231,24 @@ def evaluate(loader, threshold):
             elif((len(target["boxes"]) != 0) and (len(outputs[0]["boxes"]) == 0)):
                 oF1s.append(0)
             else:
+                # Force submasks into place, gets rid of the box errors. If oF1 improves, box regression is largest ERROR
+                #outputs[0]["boxes"]  = target["boxes"]
+                #outputs[0]["labels"] = target["labels"]
+                scores = outputs[0]['scores']
+
                 gt_mask = combine_resize_submasks(target, raw_img, threshold = None)
                 pred_mask = combine_resize_submasks(outputs[0], raw_img, threshold = threshold)
 
-                oF1 = of1_score(pred_mask, gt_mask, len(outputs[0]["boxes"]), len(target["boxes"]))
+                out = debug_box_scores(outputs[0], target)
+
+                if out is None:
+                    continue
+                else:
+                    for (k,v) in out.items():
+                        box_overlap_scores[k].append(v)
+
+
+                oF1, recall = of1_score(pred_mask, gt_mask, len(outputs[0]["boxes"]), len(target["boxes"]))
 
                 boxes_size = []
 
@@ -196,8 +260,9 @@ def evaluate(loader, threshold):
                 img_size.append(raw_img.shape[0]*raw_img.shape[1])
                 avg_boxsize.append(np.mean(boxes_size))
                 oF1s.append(oF1)
+                recalls.append(recall)
 
-    return np.asarray(oF1s), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes)
+    return box_overlap_scores, np.asarray(oF1s), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(recalls), np.asarray(box_recalls)
 
 def corr_oF1_avgboxsize(oF1s, avg_boxsize):
 
@@ -230,7 +295,6 @@ if __name__ == "__main__":
     histogram oF1s w.r.t image size
     histogram oF1s w.r.t avg submask size
     histogram oF1s w.r.t Number submasks
-
     """
     plot = False
     # For all authentic prediction, compute the oF1 scores in the train and test dataset
@@ -246,13 +310,24 @@ if __name__ == "__main__":
     #print(np.mean(oF1s), np.std(oF1s))
 
 
-    for thresh in [0.8, 0.85, 0.9, 0.95]:
-        oF1s, avg_boxsize, img_size, N_boxes, pixel_predtrue_proportion = evaluate(train_loader, thresh)
+
+    for thresh in [0.1, 0.3, 0.6]:
+        """# MEAN oF1s:
+        0.21066425060809993 0.24159184788399646
+        RECALL:"""
+        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls, box_recalls = evaluate(train_loader, thresh)
 
         print(" MEAN oF1s: ")
         print(np.mean(oF1s), np.std(oF1s))
+        print(" RECALL:")
+        print(np.mean(recalls), np.std(recalls))
+        print(" BOX RECALLS: ")
+        print(np.mean(box_recalls), np.std(box_recalls))
+        for (k, v) in box_overlap_scores.items():
+            print(f"{k}: {np.mean(v)}")
 
-        corr = corr_oF1_avgboxsize(oF1s, avg_boxsize)
-        print(f"Corr oF1 w avg_boxsize: {corr:.4f} \n oF1 w img_size: {np.corrcoef(img_size, oF1s)[0,1]:.4f} \n oF1 w N_boxes: {np.corrcoef(N_boxes, oF1s)[0,1]:.4f}")
 
-        #print(f"FF: {FP_forged_imgs}, FA: {FN_forged_imgs}, TF: {TP_forged_imgs}, TA: {TN_forged_imgs}")
+        # corr = corr_oF1_avgboxsize(oF1s, avg_boxsize)
+        #print(f"Corr oF1 w avg_boxsize: {corr:.4f} \n oF1 w img_size: {np.corrcoef(img_size, oF1s)[0,1]:.4f} \n oF1 w N_boxes: {np.corrcoef(N_boxes, oF1s)[0,1]:.4f}")
+
+        #print(f"FP: {FP_forged_imgs}, FN: {FN_forged_imgs}, TP: {TP_forged_imgs}, TN: {TN_forged_imgs}")

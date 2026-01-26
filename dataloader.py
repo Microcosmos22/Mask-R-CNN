@@ -359,9 +359,16 @@ tenimg_paths = {
 train_transform = A.Compose([
     A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
 
-    #A.HorizontalFlip(p=0.5),
-    #A.VerticalFlip(p=0.5),
-    #A.RandomRotate90(p=0.5),
+    A.HorizontalFlip(p=0.5),
+    A.VerticalFlip(p=0.5),
+    A.RandomRotate90(p=0.5),
+
+    # Color / lighting / noise
+    A.RandomBrightnessContrast(p=0.5, brightness_limit=0.2, contrast_limit=0.2),
+    A.HueSaturationValue(p=0.5, hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=20),
+    A.GaussNoise(p=0.3),
+
+
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ToTensorV2(),
 ])

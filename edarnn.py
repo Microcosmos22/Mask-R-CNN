@@ -105,7 +105,7 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=16, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
@@ -138,7 +138,7 @@ def train_epoch(model, dataloader, optimizer, device, epoch):
     total_box_loss  = 0
     total_cls_loss  = 0
 
-    for idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Training")):
+    for idx, (images, targets, _, _) in enumerate(tqdm(dataloader, desc="Training")):
 
 
         images = [img.to(device) for img in images]
@@ -182,7 +182,7 @@ def validate_epoch(model, dataloader, device):
     total_loss = 0
 
     with torch.no_grad():
-        for batch_idx, (images, targets, _) in enumerate(tqdm(dataloader, desc="Validation")):
+        for batch_idx, (images, targets, _, _) in enumerate(tqdm(dataloader, desc="Validation")):
             images = [img.to(device) for img in images]
             targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
@@ -252,6 +252,15 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
             [p for p in model.parameters() if p.requires_grad],
             lr=1e-4, momentum=0.9
         )
+    elif mode == 4:
+        """ TRAIN ONLY THE CLASSIFIER """
+        for name, param in model.named_parameters():
+            if "roi_heads.box_predictor" not in name:  # keep only box+cls trainable
+                param.requires_grad = False
+
+        optimizer = torch.optim.SGD(
+            [p for p in model.parameters() if p.requires_grad],
+            lr=5e-3, momentum=0.9)
     else:
         for p in model.rpn.parameters():
             p.requires_grad = False
@@ -281,6 +290,9 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
         """ Train, validate, evaluate """
         train_loss, loss_mask, loss_box_reg, loss_classifier = train_epoch(model, train_loader, optimizer, device, epoch)
 
+        print("LOSSES (Classifier, box_reg):")
+        print(loss_classifier)
+        print(loss_box_reg)
         rcnn_losses.append([loss_mask, loss_box_reg, loss_classifier])
         train_losses.append(train_loss)
 
@@ -334,8 +346,8 @@ if __name__ == "__main__":
     losses = {"params": [], "errors": []}
     count = 0
 
-    machinepath = "../pretrained_full.pth"
-    machinepathout = "../pretrained_final.pth"
+    machinepath = "../pretrained_final.pth"
+    machinepathout = "../pretrained_classif.pth"
     num_epochs = 300
     batch = 1
 
@@ -365,19 +377,20 @@ if __name__ == "__main__":
         for combo in all_combinations:
 
             #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 1, 8)
-            model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 15)
-            model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 15)
+            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 4, 15)
+            #model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 15)
+            #model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 15)
 
 
-            train_losses = train_losses1 + train_losses2 + train_losses3
-            val_losses   = val_losses1   + val_losses2   + val_losses3
+            train_losses = train_losses1# + train_losses2 + train_losses3
+            val_losses   = val_losses1#   + val_losses2   + val_losses3
+            rcnn_losses = rcnn_losses1
 
             # rcnn_losses is (N, 3) → concatenate along time
-            rcnn_losses = np.concatenate(
+            """rcnn_losses = np.concatenate(
                 [rcnn_losses1, rcnn_losses2, rcnn_losses3],
                 axis=0
-            )
+            )"""
 
             plt.clf()
             plt.plot(np.log(train_losses), label="Log Train Err")
