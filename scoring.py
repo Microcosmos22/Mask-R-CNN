@@ -129,13 +129,13 @@ def of1_score(pred_mask: np.ndarray, gt_mask: np.ndarray, n_pred: int, n_gt: int
     penalty = n_gt / max(n_pred, n_gt) # Penalty for predicting more submasks than there are gt masks
 
     if (precision + recall) > 0:
-        return 2 * penalty * (precision * recall) / (precision + recall), recall
+        return 2 * penalty * (precision * recall) / (precision + recall), recall, precision
     else:
         return 0, recall
 
 from torchvision.ops import box_iou
 
-def debug_box_scores(pred, gt, iou_thr=0.5, score_thr=0.5):
+def debug_box_scores(pred, gt, iou_thr=0.8, score_thr=0.6):
     pred_boxes = pred["boxes"].cpu()
     gt_boxes = gt["boxes"].cpu()
 
@@ -203,7 +203,7 @@ def evaluate(loader, threshold):
     avg_boxsize = []
     N_boxes = []
     recalls = []
-    box_recalls = []
+    precisions = []
 
     true_forged_pixels = 0
     pred_forged_pixels = 0
@@ -239,7 +239,7 @@ def evaluate(loader, threshold):
                 gt_mask = combine_resize_submasks(target, raw_img, threshold = None)
                 pred_mask = combine_resize_submasks(outputs[0], raw_img, threshold = threshold)
 
-                out = debug_box_scores(outputs[0], target)
+                out = debug_box_scores(outputs[0], target, iou_thr = 0.8, score_thr = threshold)
 
                 if out is None:
                     continue
@@ -248,7 +248,7 @@ def evaluate(loader, threshold):
                         box_overlap_scores[k].append(v)
 
 
-                oF1, recall = of1_score(pred_mask, gt_mask, len(outputs[0]["boxes"]), len(target["boxes"]))
+                oF1, recall, precision = of1_score(pred_mask, gt_mask, len(outputs[0]["boxes"]), len(target["boxes"]))
 
                 boxes_size = []
 
@@ -261,8 +261,9 @@ def evaluate(loader, threshold):
                 avg_boxsize.append(np.mean(boxes_size))
                 oF1s.append(oF1)
                 recalls.append(recall)
+                precisions.append(precision)
 
-    return box_overlap_scores, np.asarray(oF1s), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(recalls), np.asarray(box_recalls)
+    return box_overlap_scores, np.asarray(oF1s), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(recalls), np.asarray(precision)
 
 def corr_oF1_avgboxsize(oF1s, avg_boxsize):
 
@@ -311,20 +312,18 @@ if __name__ == "__main__":
 
 
 
-    for thresh in [0.1, 0.3, 0.6]:
+    for thresh in [0.6, 0.8]:
         """# MEAN oF1s:
         0.21066425060809993 0.24159184788399646
         RECALL:"""
-        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls, box_recalls = evaluate(train_loader, thresh)
+        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls = evaluate(train_loader, thresh)
 
         print(" MEAN oF1s: ")
         print(np.mean(oF1s), np.std(oF1s))
         print(" RECALL:")
         print(np.mean(recalls), np.std(recalls))
-        print(" BOX RECALLS: ")
-        print(np.mean(box_recalls), np.std(box_recalls))
         for (k, v) in box_overlap_scores.items():
-            print(f"{k}: {np.mean(v)}")
+            print(f"{k}: {np.mean(v)} +- {np.std(v)}")
 
 
         # corr = corr_oF1_avgboxsize(oF1s, avg_boxsize)
