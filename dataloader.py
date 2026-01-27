@@ -275,6 +275,30 @@ class ForgeryDataset(Dataset):
 
         return image, target, self.samples[idx]['image_path'], idx  # return filename too
 
+    def sample_bg_boxes(H, W, gt_boxes, num_bg=3, min_size=20, iou_thr=0.05):
+        bg_boxes = []
+
+        tries = 0
+        while len(bg_boxes) < num_bg and tries < 50:
+            tries += 1
+
+            w = np.random.randint(min_size, W // 2)
+            h = np.random.randint(min_size, H // 2)
+            x1 = np.random.randint(0, W - w)
+            y1 = np.random.randint(0, H - h)
+            box = torch.tensor([[x1, y1, x1 + w, y1 + h]], dtype=torch.float32)
+
+            if len(gt_boxes) == 0:
+                bg_boxes.append(box[0])
+            else:
+                if box_iou(box, gt_boxes).max() < iou_thr:
+                    bg_boxes.append(box[0])
+
+        if len(bg_boxes) == 0:
+            return torch.zeros((0,4))
+
+        return torch.stack(bg_boxes)
+
     def mask_to_boxes(self, mask, plot = False):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
         if isinstance(mask, torch.Tensor):
@@ -321,22 +345,18 @@ class ForgeryDataset(Dataset):
             labels = torch.zeros(0, dtype=torch.int64)
             masks = torch.zeros((0, mask_np.shape[0], mask_np.shape[1]), dtype=torch.uint8)
 
-        if plot:
-            # --- DEBUG VIS ---
-            fig, ax = plt.subplots(1, 1, figsize=(5, 5))
-            ax.imshow(mask_np, cmap="gray")
+        """ ADD RANDOM BACKGROUND (SCORE=0) BOXES """
+        H, W = mask_np.shape
+        bg_boxes = sample_bg_boxes(H, W, boxes, num_bg=3)
 
-            for box in boxes:
-                x1, y1, x2, y2 = box.int().tolist()
-                rect = plt.Rectangle(
-                    (x1, y1), x2 - x1, y2 - y1,
-                    fill=False, edgecolor="red", linewidth=2
-                )
-                ax.add_patch(rect)
+        if len(bg_boxes) > 0:
+            boxes = torch.cat([boxes, bg_boxes], dim=0)
 
-            ax.set_title("mask_to_boxes debug")
-            ax.axis("off")
-            plt.show()
+            bg_labels = torch.zeros(len(bg_boxes), dtype=torch.int64)  # background
+            labels = torch.cat([labels, bg_labels], dim=0)
+
+            bg_masks = torch.zeros((len(bg_boxes), H, W), dtype=torch.uint8)
+            masks = torch.cat([masks, bg_masks], dim=0)
 
 
         return boxes, labels, masks
@@ -359,14 +379,14 @@ tenimg_paths = {
 train_transform = A.Compose([
     A.Resize(512, 512, interpolation=cv2.INTER_NEAREST),
 
-    #A.HorizontalFlip(p=0.5),
+    A.HorizontalFlip(p=0.5),
     #A.VerticalFlip(p=0.5),
     #A.RandomRotate90(p=0.5),
 
     # Color / lighting / noise
-    #A.RandomBrightnessContrast(p=0.5, brightness_limit=0.2, contrast_limit=0.2),
-    #A.HueSaturationValue(p=0.5, hue_shift_limit=10, sat_shift_limit=20, val_shift_limit=20),
-    #A.GaussNoise(p=0.3),
+    A.RandomBrightnessContrast(p=0.3, brightness_limit=0.15, contrast_limit=0.15),
+    A.HueSaturationValue(p=0.2),
+    A.GaussNoise(p=0.1),
 
 
     A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
