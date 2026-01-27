@@ -105,7 +105,7 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
@@ -253,14 +253,15 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
             lr=1e-4, momentum=0.9
         )
     elif mode == 4:
-        """ TRAIN ONLY THE CLASSIFIER """
-        for name, param in model.named_parameters():
-            if "roi_heads.box_predictor" not in name:  # keep only box+cls trainable
-                param.requires_grad = False
-
+        """ TRAIN ONLY THE CLASSIFIER + BOX (Freeze Mask) """
+        for p in model.roi_heads.mask_head.parameters():
+            p.requires_grad = False
+        for p in model.roi_heads.mask_predictor.parameters():
+            p.requires_grad = False
         optimizer = torch.optim.SGD(
             [p for p in model.parameters() if p.requires_grad],
-            lr=5e-3, momentum=0.9)
+            lr=1e-3, momentum=0.9
+        )
     else:
         for p in model.rpn.parameters():
             p.requires_grad = False

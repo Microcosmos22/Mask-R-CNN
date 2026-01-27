@@ -20,6 +20,7 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
+from torchvision.ops import box_iou
 
 
 def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
@@ -275,10 +276,13 @@ class ForgeryDataset(Dataset):
 
         return image, target, self.samples[idx]['image_path'], idx  # return filename too
 
-    def sample_bg_boxes(H, W, gt_boxes, num_bg=3, min_size=20, iou_thr=0.05):
+    def sample_bg_boxes(self, H, W, gt_boxes, num_bg=3, min_size=20, iou_thr=0.05):
         bg_boxes = []
-
         tries = 0
+
+        if len(gt_boxes) == 0:
+            return torch.zeros((0, 4), dtype=torch.float32)
+
         while len(bg_boxes) < num_bg and tries < 50:
             tries += 1
 
@@ -288,11 +292,8 @@ class ForgeryDataset(Dataset):
             y1 = np.random.randint(0, H - h)
             box = torch.tensor([[x1, y1, x1 + w, y1 + h]], dtype=torch.float32)
 
-            if len(gt_boxes) == 0:
+            if box_iou(box, gt_boxes).max().item() < iou_thr:
                 bg_boxes.append(box[0])
-            else:
-                if box_iou(box, gt_boxes).max() < iou_thr:
-                    bg_boxes.append(box[0])
 
         if len(bg_boxes) == 0:
             return torch.zeros((0,4))
@@ -347,7 +348,7 @@ class ForgeryDataset(Dataset):
 
         """ ADD RANDOM BACKGROUND (SCORE=0) BOXES """
         H, W = mask_np.shape
-        bg_boxes = sample_bg_boxes(H, W, boxes, num_bg=3)
+        bg_boxes = self.sample_bg_boxes(H, W, boxes, 3)
 
         if len(bg_boxes) > 0:
             boxes = torch.cat([boxes, bg_boxes], dim=0)
