@@ -21,56 +21,51 @@ from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
 from torchvision.ops import box_iou
+from torchvision.models.detection.image_list import ImageList
 
-
-def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
+@torch.no_grad()
+def run_rpn_only(images):
     """
-    Paints:
-      - top-k predicted boxes (from output)
-      - all GT target boxes
-    onto combined_mask (in image space).
+    images: list of tensors [C,H,W], already normalized
+    returns: list of proposal tensors [N,4] per image
     """
+    rpn_model = maskrcnn_resnet50_fpn(weights="DEFAULT")
+    rpn_model.eval()
+    rpn_model.to(device)
 
-    _, _, H, W = combined_mask.shape
+    # Freeze everything
+    for p in rpn_model.parameters():
+        p.requires_grad = False
 
-    scores = output["scores"]
-    pred_boxes = output["boxes"]
-    gt_boxes = target["boxes"]
+    # Backbone
+    features = rpn_model.backbone(images)
 
-    # Sort predictions by score
-    idx = scores.argsort(descending=True)
-    pred_boxes = pred_boxes[idx]
+    if isinstance(features, torch.Tensor):
+        features = {"0": features}
 
-    def paint_box(cm, x1, y1, x2, y2):
-        x1, x2 = int(x1), int(x2)
-        y1, y2 = int(y1), int(y2)
+    # Image sizes
+    image_sizes = [img.shape[-2:] for img in images]
+    image_list = ImageList(images, image_sizes)
 
-        # clamp safely
-        x1 = max(0, min(x1, W - 1))
-        x2 = max(1, min(x2, W))
-        y1 = max(0, min(y1, H - 1))
-        y2 = max(1, min(y2, H))
+    # RPN proposals
+    proposals, _ = rpn_model.rpn(image_list, features)
+    return proposals
 
-        # top / bottom
-        cm[:, :, y1:y1+thickness, x1:x2] = 1
-        cm[:, :, y2-thickness:y2, x1:x2] = 1
+from torchvision.ops import box_iou
 
-        # left / right
-        cm[:, :, y1:y2, x1:x1+thickness] = 1
-        cm[:, :, y1:y2, x2-thickness:x2] = 1
+def select_bg_boxes_from_rpn(rpn_boxes, gt_boxes, max_bg=3, iou_thr=0.1):
+    """
+    rpn_boxes: [P,4]
+    gt_boxes:  [G,4]
+    """
+    if len(gt_boxes) == 0:
+        return rpn_boxes[:max_bg]
 
-    # --- paint top-k predictions ---
-    for i in range(min(topk, len(pred_boxes))):
-        #print(f"Box {i}: score = {scores[i].item():.4f}")
-        paint_box(combined_mask, *pred_boxes[i])
+    ious = box_iou(rpn_boxes, gt_boxes)   # [P,G]
+    max_iou, _ = ious.max(dim=1)
 
-    # --- paint GT boxes ---
-    for box in gt_boxes:
-        paint_box(combined_mask, *box)
-
-    return combined_mask
-
-
+    bg_boxes = rpn_boxes[max_iou < iou_thr]
+    return bg_boxes[:max_bg]
 
 def resize_mask(combined_mask, target_image):
     """
@@ -243,18 +238,6 @@ class ForgeryDataset(Dataset):
         if sample['is_forged'] and mask.sum() > 0:
             boxes, labels, masks = self.mask_to_boxes(mask, plot = False)
 
-            """
-            PAINTING FILLED BOXES ON LOAD
-            # build instance masks from boxes (cheap, done once)
-            N = len(boxes)
-            H, W = mask.shape
-            instance_masks = torch.zeros((N, H, W), dtype=torch.uint8)
-
-            for i, box in enumerate(boxes):
-                x1, y1, x2, y2 = box.int()
-                instance_masks[i, y1:y2, x1:x2] = 1
-            """
-
             target = {
                 'boxes': boxes,
                 'labels': labels,
@@ -275,30 +258,6 @@ class ForgeryDataset(Dataset):
             }
 
         return image, target, self.samples[idx]['image_path'], idx  # return filename too
-
-    def sample_bg_boxes(self, H, W, gt_boxes, num_bg=3, min_size=20, iou_thr=0.05):
-        bg_boxes = []
-        tries = 0
-
-        if len(gt_boxes) == 0:
-            return torch.zeros((0, 4), dtype=torch.float32)
-
-        while len(bg_boxes) < num_bg and tries < 50:
-            tries += 1
-
-            w = np.random.randint(min_size, W // 2)
-            h = np.random.randint(min_size, H // 2)
-            x1 = np.random.randint(0, W - w)
-            y1 = np.random.randint(0, H - h)
-            box = torch.tensor([[x1, y1, x1 + w, y1 + h]], dtype=torch.float32)
-
-            if box_iou(box, gt_boxes).max().item() < iou_thr:
-                bg_boxes.append(box[0])
-
-        if len(bg_boxes) == 0:
-            return torch.zeros((0,4))
-
-        return torch.stack(bg_boxes)
 
     def mask_to_boxes(self, mask, plot = False):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
@@ -346,19 +305,26 @@ class ForgeryDataset(Dataset):
             labels = torch.zeros(0, dtype=torch.int64)
             masks = torch.zeros((0, mask_np.shape[0], mask_np.shape[1]), dtype=torch.uint8)
 
-        """ ADD RANDOM BACKGROUND (SCORE=0) BOXES """
-        H, W = mask_np.shape
-        bg_boxes = self.sample_bg_boxes(H, W, boxes, 3)
+        """ ADD AUTHENTIC OBJECT (SCORE=0) BOXES """
+        # Run RPN
+        proposals = run_rpn_only(model, [image])[0]  # [P,4]
+
+        # Select authentic object boxes
+        bg_boxes = select_bg_boxes_from_rpn(
+            proposals,
+            boxes,        # GT forged boxes
+            max_bg=3
+        )
 
         if len(bg_boxes) > 0:
             boxes = torch.cat([boxes, bg_boxes], dim=0)
 
-            bg_labels = torch.zeros(len(bg_boxes), dtype=torch.int64)  # background
+            bg_labels = torch.zeros(len(bg_boxes), dtype=torch.int64)
             labels = torch.cat([labels, bg_labels], dim=0)
 
+            H, W = mask_np.shape
             bg_masks = torch.zeros((len(bg_boxes), H, W), dtype=torch.uint8)
             masks = torch.cat([masks, bg_masks], dim=0)
-
 
         return boxes, labels, masks
 

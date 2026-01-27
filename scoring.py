@@ -131,7 +131,7 @@ def of1_score(pred_mask: np.ndarray, gt_mask: np.ndarray, n_pred: int, n_gt: int
     if (precision + recall) > 0:
         return 2 * penalty * (precision * recall) / (precision + recall), recall, precision
     else:
-        return 0, recall
+        return 0, recall, precision
 
 from torchvision.ops import box_iou
 
@@ -166,7 +166,7 @@ def debug_box_scores(pred, gt, iou_thr=0.8, score_thr=0.6):
         "gt_high_score_recall": high_score_gt_recall,
         "mean_tp_score": mean_tp_score,
         "mean_fp_score": mean_fp_score,
-        "num_preds": len(scores),
+        "num_preds": (scores >= score_thr).sum().item(),
         "num_gt": len(gt["boxes"])
     }
 
@@ -181,7 +181,7 @@ def evaluate_allauthentic(loader):
     true_forged_pixels = 0
     pred_forged_pixels = 0
 
-    for idx, (image, target, filename) in enumerate(tqdm(loader)):
+    for idx, (image, target, filename, _) in enumerate(tqdm(loader)):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
@@ -263,7 +263,7 @@ def evaluate(loader, threshold):
                 recalls.append(recall)
                 precisions.append(precision)
 
-    return box_overlap_scores, np.asarray(oF1s), np.asarray(avg_boxsize), np.asarray(img_size), np.asarray(N_boxes), np.asarray(recalls), np.asarray(precision)
+    return box_overlap_scores, np.asarray(oF1s), np.asarray(recalls), np.asarray(precisions)
 
 def corr_oF1_avgboxsize(oF1s, avg_boxsize):
 
@@ -285,7 +285,7 @@ if __name__ == "__main__":
     # Load model and weights
     model = get_coco_initialized_model(num_classes=2)
     #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-    state = torch.load("../pretrained_final.pth", map_location=device)
+    state = torch.load("../pretrained_full.pth", map_location=device)
     model.load_state_dict(state)
 
     model.to(device)  # ensure model is on same device as inputs
@@ -306,7 +306,7 @@ if __name__ == "__main__":
      Baseline oF1s TRAIN:
      0.404 +- 0.490
     """
-    #oF1s = evaluate_allauthentic(test_loader)
+    #oF1s = evaluate_allauthentic(train_loader)
     #print(" Baseline oF1s TEST: ")
     #print(np.mean(oF1s), np.std(oF1s))
 
@@ -314,16 +314,19 @@ if __name__ == "__main__":
 
     for thresh in [0.6, 0.8]:
         """# MEAN oF1s:
-        0.21066425060809993 0.24159184788399646
+        0.210 0.241
         RECALL:"""
-        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls = evaluate(train_loader, thresh)
+        box_overlap_scores, oF1s, recalls, precisions = evaluate(train_loader, thresh)
 
         print(" MEAN oF1s: ")
-        print(np.mean(oF1s), np.std(oF1s))
+        print(f"{np.mean(oF1s):.2f} +- {np.std(oF1s):.2f}")
         print(" RECALL:")
-        print(np.mean(recalls), np.std(recalls))
+        print(f"{np.mean(recalls):.2f} +- {np.std(recalls):.2f}")
+        print(" PRECISION:")
+        print(f"{np.mean(precisions):.2f} +- {np.std(precisions):.2f}")
+
         for (k, v) in box_overlap_scores.items():
-            print(f"{k}: {np.mean(v)} +- {np.std(v)}")
+            print(f"{k}: {np.mean(v):.2f} +- {np.std(v):.2f}")
 
 
         # corr = corr_oF1_avgboxsize(oF1s, avg_boxsize)

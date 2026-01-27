@@ -105,7 +105,7 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
@@ -221,6 +221,10 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
         state = torch.load(machinepath, map_location="cpu")
         model.load_state_dict(state, strict=False)
 
+        """ REPLACE WITH ORIGINAL RPN """
+        coco_model = maskrcnn_resnet50_fpn(weights="DEFAULT")
+        model.rpn = coco_model.rpn
+
 
     if mode == 1:
         """ Train box+mask heads """
@@ -263,12 +267,14 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
             lr=1e-3, momentum=0.9
         )
     else:
-        for p in model.rpn.parameters():
-            p.requires_grad = False
+        """ TRAIN ONLY THE CLASSIFIER """
+        for name, param in current_model.named_parameters():
+            if "roi_heads.box_predictor" not in name:  # only train classifier
+                param.requires_grad = False
 
         optimizer = torch.optim.SGD(
             [p for p in model.parameters() if p.requires_grad],
-            lr=5e-3, momentum=0.9)
+            lr=2e-4, momentum=0.9)
 
 
     model.to(device)
@@ -349,64 +355,34 @@ if __name__ == "__main__":
 
     machinepath = "../pretrained_final.pth"
     machinepathout = "../pretrained_classif.pth"
-    num_epochs = 300
-    batch = 1
-
-    feat_ex = [0]
-    lr = [0.001]
-    weight_decay = [0.001]
-    step_size = [5]
-    gamma = [0.1]
-    samplR=2
-    rpn_pre_train = 1000
-    rpn_pre_test = 1000
-    rpn_post_train = 200
-    rpn_post_test = 200
-
-    out_ch = [1]
-
-    all_combinations = list(product(
-        feat_ex, out_ch, lr, weight_decay,
-        step_size, gamma
-    ))
-
-    print(f"Total combinations: {len(all_combinations)}")
-    print(all_combinations)
 
     with keep.running():
+        """ REMEMBER THAT WE ARE REPLACING WITH ORIGINAL RPN """
 
-        for combo in all_combinations:
-
-            #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
-            model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, 4, 15)
-            #model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 15)
-            #model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 15)
-
-
-            train_losses = train_losses1# + train_losses2 + train_losses3
-            val_losses   = val_losses1#   + val_losses2   + val_losses3
-            rcnn_losses = rcnn_losses1
-
-            # rcnn_losses is (N, 3) → concatenate along time
-            """rcnn_losses = np.concatenate(
-                [rcnn_losses1, rcnn_losses2, rcnn_losses3],
-                axis=0
-            )"""
-
-            plt.clf()
-            plt.plot(np.log(train_losses), label="Log Train Err")
-            plt.plot(np.log(val_losses), label="Log Val Err")
-            plt.legend()
-            plt.savefig("./data/last_training_errs.png")
-            plt.clf()
-            plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
-            plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
-            plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
-            plt.legend()
-            plt.savefig("./data/last_training_boxerrs.png")
+        #print(f"Feat_ex: {feat_ex}, out_ch: {out_ch}, lr: {lr}, weight_d: {weight_decay}, step_size: {step_size}, gamma: {gamma}, samplR: {samplR}, rpn_pre_train: {rpn_pre_train} ")
+        model, train_losses1, val_losses1, rcnn_losses1 = train_parameters(train_loader, val_loader, None, machinepath, mode = 5, num_epochs = 15)
+        #model, train_losses2, val_losses2, rcnn_losses2 = train_parameters(train_loader, val_loader, None, machinepathout, 2, 15)
+        #model, train_losses3, val_losses3, rcnn_losses3 = train_parameters(train_loader, val_loader, None, machinepathout, 3, 15)
 
 
-            print(" Saving losses.json")
-            losses["params"].append(combo)
-            with open("./data/losses.json", "w") as f:
-                json.dump(losses, f, indent=4)
+        train_losses = train_losses1 # + train_losses2 + train_losses3
+        val_losses   = val_losses1 # + val_losses2   + val_losses3
+        rcnn_losses = rcnn_losses1
+
+        # rcnn_losses is (N, 3) → concatenate along time
+        """rcnn_losses = np.concatenate(
+            [rcnn_losses1, rcnn_losses2, rcnn_losses3],
+            axis=0
+        )"""
+
+        plt.clf()
+        plt.plot(np.log(train_losses), label="Log Train Err")
+        plt.plot(np.log(val_losses), label="Log Val Err")
+        plt.legend()
+        plt.savefig("./data/last_training_errs.png")
+        plt.clf()
+        plt.plot(np.log(rcnn_losses[:,0]), label="Mask")
+        plt.plot(np.log(rcnn_losses[:,1]), label=" Box regr.")
+        plt.plot(np.log(rcnn_losses[:,2]), label="Classifier")
+        plt.legend()
+        plt.savefig("./data/last_training_boxerrs.png")
