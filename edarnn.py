@@ -105,7 +105,7 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
@@ -268,7 +268,7 @@ def train_parameters(train_loader, val_loader, eval_loader, machinepath, mode, n
         )
     else:
         """ TRAIN ONLY THE CLASSIFIER """
-        for name, param in current_model.named_parameters():
+        for name, param in model.named_parameters():
             if "roi_heads.box_predictor" not in name:  # only train classifier
                 param.requires_grad = False
 
@@ -354,7 +354,7 @@ if __name__ == "__main__":
     count = 0
 
     machinepath = "../pretrained_final.pth"
-    machinepathout = "../pretrained_classif.pth"
+    machinepathout = "../pretrained_authentic_gtboxes.pth"
 
     with keep.running():
         """ REMEMBER THAT WE ARE REPLACING WITH ORIGINAL RPN """

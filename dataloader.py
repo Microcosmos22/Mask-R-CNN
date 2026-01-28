@@ -23,6 +23,11 @@ from torchvision.transforms import functional as F_transforms
 from torchvision.ops import box_iou
 from torchvision.models.detection.image_list import ImageList
 
+from torchvision.models.detection import maskrcnn_resnet50_fpn
+
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 @torch.no_grad()
 def run_rpn_only(images):
     """
@@ -183,7 +188,7 @@ class ForgeryDataset(Dataset):
             return image_raw, np.asarray([0])
 
     def get_image_props(self, image, mask):
-        boxes, labels, masks = self.mask_to_boxes(mask, plot = False)
+        boxes, labels, masks = self.mask_to_boxes(image, mask)
         mask_np = masks.cpu().numpy() if isinstance(masks, torch.Tensor) else masks
         mask_whiteness = mask_np.sum() / (image.shape[1] * image.shape[2])
 
@@ -236,7 +241,7 @@ class ForgeryDataset(Dataset):
 
         # Prepare targets for Mask R-CNN
         if sample['is_forged'] and mask.sum() > 0:
-            boxes, labels, masks = self.mask_to_boxes(mask, plot = False)
+            boxes, labels, masks = self.mask_to_boxes(image, mask)
 
             target = {
                 'boxes': boxes,
@@ -259,7 +264,7 @@ class ForgeryDataset(Dataset):
 
         return image, target, self.samples[idx]['image_path'], idx  # return filename too
 
-    def mask_to_boxes(self, mask, plot = False):
+    def mask_to_boxes(self, image, mask, plot = False):
         """Convert segmentation mask to bounding boxes for Mask R-CNN"""
         if isinstance(mask, torch.Tensor):
             mask_np = mask.detach().cpu().numpy()
@@ -307,16 +312,17 @@ class ForgeryDataset(Dataset):
 
         """ ADD AUTHENTIC OBJECT (SCORE=0) BOXES """
         # Run RPN
-        proposals = run_rpn_only(model, [image])[0]  # [P,4]
+        proposals = run_rpn_only(image.unsqueeze(0).to(device))[0]  # [P,4]
 
         # Select authentic object boxes
         bg_boxes = select_bg_boxes_from_rpn(
             proposals,
-            boxes,        # GT forged boxes
+            boxes.to(device),        # GT forged boxes
             max_bg=3
         )
 
         if len(bg_boxes) > 0:
+            bg_boxes = bg_boxes.to(boxes.device)
             boxes = torch.cat([boxes, bg_boxes], dim=0)
 
             bg_labels = torch.zeros(len(bg_boxes), dtype=torch.int64)
