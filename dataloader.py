@@ -107,30 +107,48 @@ def resize_mask(combined_mask, target_image):
     )
     return mask_resized
 
-def combine_resize_submasks(output, target_image, threshold):
-    """ Combines all submasks into a full image,
-     """
+def combine_resize_submasks(output, target_image, pixel_thresh=None, mask_thresh=None, already_binary=False):
 
-    if len(output["boxes"]) == 0:
-        return torch.zeros(target_image.shape[0], target_image.shape[1])
+    if len(output["masks"]) == 0:
+        return torch.zeros(
+            target_image.shape[0],
+            target_image.shape[1],
+            device=target_image.device
+        )
 
-    if threshold is not None:
-        keep = output["scores"] > threshold
-        masks = output["masks"][keep]
+    masks = output["masks"].squeeze(1)  # [N,H,W]
+    combined = torch.zeros_like(masks[0], dtype=torch.float32)
+    mask_confs = []
+    submasks_above_thresh = 0
+
+    if already_binary: # Target was passed, submasks are dtype=uint8
+        for j in range(len(masks)):
+            combined += masks[j].float()
+            mask_confs.append(1.0)
     else:
-        masks = output["masks"]
+        for j in range(len(masks)):
+            mask_probs = masks[j]      # Pixel forgery prob in E (0, 1)
+            binary_mask = mask_probs > pixel_thresh      # Thresholded gives binary
+            """ So mask_probs is soft, binary_mask is smaller """
+            #print(masks[j].max(), masks[j].min(), masks[j].float().mean())
 
-    if masks.ndim == 4:
-        masks = masks.squeeze(1)
+            if binary_mask.sum() == 0:
+                continue
 
-    combined_mask = masks.sum(dim=0)               # (H, W)
-    combined_mask = torch.clamp(combined_mask, 0, 1)
-    combined_mask = combined_mask.unsqueeze(0).unsqueeze(0)
-    #print(f" Combining {len(masks)} masks and resizing to original")
+            """ Mean of the probs inside the binary mask E [0,1] """
+            mask_conf = mask_probs[binary_mask].float().mean()
+            mask_confs.append(mask_conf)
 
-    mask_resized = resize_mask(combined_mask, target_image)
+            """ Combine only binaries with high forgery probability """
+            if mask_conf > mask_thresh:
+                combined += binary_mask.float()
+                submasks_above_thresh += 1
 
-    return mask_resized.squeeze(0).squeeze(0)  # (H_img, W_img)
+    #print(f"Submasks above thresh: {submasks_above_thresh}")
+    combined = combined.unsqueeze(0).unsqueeze(0)   # [1,1,Hm,Wm]
+    combined = resize_mask(combined, target_image)
+
+    return combined.squeeze(0).squeeze(0), torch.tensor(mask_confs)
 
 
 class ForgeryDataset(Dataset):
@@ -309,28 +327,6 @@ class ForgeryDataset(Dataset):
             boxes = torch.zeros((0, 4), dtype=torch.float32)
             labels = torch.zeros(0, dtype=torch.int64)
             masks = torch.zeros((0, mask_np.shape[0], mask_np.shape[1]), dtype=torch.uint8)
-
-        """ ADD AUTHENTIC OBJECT (SCORE=0) BOXES """
-        # Run RPN
-        proposals = run_rpn_only(image.unsqueeze(0).to(device))[0]  # [P,4]
-
-        # Select authentic object boxes
-        bg_boxes = select_bg_boxes_from_rpn(
-            proposals,
-            boxes.to(device),        # GT forged boxes
-            max_bg=3
-        )
-
-        if len(bg_boxes) > 0:
-            bg_boxes = bg_boxes.to(boxes.device)
-            boxes = torch.cat([boxes, bg_boxes], dim=0)
-
-            bg_labels = torch.zeros(len(bg_boxes), dtype=torch.int64)
-            labels = torch.cat([labels, bg_labels], dim=0)
-
-            H, W = mask_np.shape
-            bg_masks = torch.zeros((len(bg_boxes), H, W), dtype=torch.uint8)
-            masks = torch.cat([masks, bg_masks], dim=0)
 
         return boxes, labels, masks
 

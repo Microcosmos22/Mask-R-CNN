@@ -135,27 +135,30 @@ def of1_score(pred_mask: np.ndarray, gt_mask: np.ndarray, n_pred: int, n_gt: int
 
 from torchvision.ops import box_iou
 
-def debug_box_scores(pred, gt, iou_thr=0.8, score_thr=0.6):
+def debug_box_scores(pred, gt, scores, iou_thr=0.8, score_thr=0.8):
     pred_boxes = pred["boxes"].cpu()
     gt_boxes = gt["boxes"].cpu()
 
     if len(gt_boxes) == 0 or len(pred_boxes) == 0:
         return None
 
-    ious = box_iou(gt_boxes, pred_boxes)  # [G, P]
-    scores = pred["scores"].cpu()          # <--- fix here
-
+    ious = box_iou(gt_boxes, pred_boxes)  # len(gt) X len(pred)
+    """ max iou and idx along dim1 """
     best_iou, best_idx = ious.max(dim=1)
     best_scores = scores[best_idx]
 
+
     gt_covered = (best_iou >= iou_thr) & (best_scores >= score_thr)
+    """ Boolean array of the GT boxes covered by high scoring pred box """
     high_score_gt_recall = gt_covered.float().mean().item()
 
-
     # False positives = preds not matched to any GT
-    matched_preds = best_idx.unique()
+    valid_gt = best_iou >= iou_thr # [True if IoU>thresh, False] of len(scores)
+    matched_preds = best_idx[valid_gt].unique() # Grabs only indexes with True
+
     fp_mask = torch.ones(len(scores), dtype=torch.bool)
     fp_mask[matched_preds] = False
+    """ with length=len(scores), its True if not match GT, False if match GT (TP) """
 
     mean_fp_score = scores[fp_mask].mean().item() if fp_mask.any() else 0.0
     tp_mask = best_iou >= iou_thr
@@ -169,8 +172,6 @@ def debug_box_scores(pred, gt, iou_thr=0.8, score_thr=0.6):
         "num_preds": (scores >= score_thr).sum().item(),
         "num_gt": len(gt["boxes"])
     }
-
-
 
 def evaluate_allauthentic(loader):
     oF1s = []
@@ -197,7 +198,7 @@ def evaluate_allauthentic(loader):
 
     return np.asarray(oF1s)
 
-def evaluate(loader, threshold):
+def evaluate(loader, pixel_thresh, mask_thresh):
     oF1s = []
     img_size = []
     avg_boxsize = []
@@ -234,12 +235,14 @@ def evaluate(loader, threshold):
                 # Force submasks into place, gets rid of the box errors. If oF1 improves, box regression is largest ERROR
                 #outputs[0]["boxes"]  = target["boxes"]
                 #outputs[0]["labels"] = target["labels"]
-                scores = outputs[0]['scores']
+                #scores = outputs[0]['scores']
 
-                gt_mask = combine_resize_submasks(target, raw_img, threshold = None)
-                pred_mask = combine_resize_submasks(outputs[0], raw_img, threshold = threshold)
+                pred_mask, mask_confs = combine_resize_submasks(outputs[0], raw_img, pixel_thresh, mask_thresh)
+                gt_mask, _ = combine_resize_submasks(target, raw_img, pixel_thresh, mask_thresh, already_binary = True)
 
-                out = debug_box_scores(outputs[0], target, iou_thr = 0.8, score_thr = threshold)
+                print(f"Avg mask_conf: {mask_confs}")
+
+                out = debug_box_scores(outputs[0], target, mask_confs, iou_thr = 0.6)
 
                 if out is None:
                     continue
@@ -285,7 +288,7 @@ if __name__ == "__main__":
     # Load model and weights
     model = get_coco_initialized_model(num_classes=2)
     #state = torch.load("./images/frozen_natural_300/natural_frozen_300epochs.pth", map_location=device)  # load directly to device
-    state = torch.load("../pretrained_full.pth", map_location=device)
+    state = torch.load("../pretrained_final.pth", map_location=device)
     model.load_state_dict(state)
 
     model.to(device)  # ensure model is on same device as inputs
@@ -312,11 +315,12 @@ if __name__ == "__main__":
 
 
 
-    for thresh in [0.6, 0.8]:
+    for thresh in [0.1, 0.2, 0.8]:
         """# MEAN oF1s:
         0.210 0.241
-        RECALL:"""
-        box_overlap_scores, oF1s, recalls, precisions = evaluate(train_loader, thresh)
+        RECALL:
+        higher/stricter pixel_thresh -> Lower mask_confs"""
+        box_overlap_scores, oF1s, recalls, precisions = evaluate(train_loader, pixel_thresh = 0.7, mask_thresh = 0.9)
 
         print(" MEAN oF1s: ")
         print(f"{np.mean(oF1s):.2f} +- {np.std(oF1s):.2f}")
