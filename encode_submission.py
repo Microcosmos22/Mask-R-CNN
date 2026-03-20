@@ -122,7 +122,7 @@ if __name__ == "__main__":
     }
 
 
-    for idx, (image, target, filename) in enumerate(train_loader):
+    for idx, (image, target, filename, _) in enumerate(train_loader):
         image = image[0]    # take first item from batch
         target = target[0]
         raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
@@ -171,9 +171,9 @@ if __name__ == "__main__":
             if (len(outputs[0]["boxes"]) == 0):
                 submission["annotation"].append("authentic")
             else:
-                print(outputs_orig_size.shape)
+                #print(outputs_orig_size.shape)
                 submission["annotation"].append(rle_encode(outputs_orig_size))
-                print(rle_encode(outputs_orig_size))
+                #print(rle_encode(outputs_orig_size))
 
             imagename = full_dataset.get_filename(idx)["image_id"]
             submission["case_id"].append(Path(imagename).stem)

@@ -131,7 +131,7 @@ def of1_score(pred_mask: np.ndarray, gt_mask: np.ndarray, n_pred: int, n_gt: int
     if (precision + recall) > 0:
         return 2 * penalty * (precision * recall) / (precision + recall), recall, precision
     else:
-        return 0, recall
+        return 0, recall, precision
 
 from torchvision.ops import box_iou
 
@@ -316,12 +316,14 @@ if __name__ == "__main__":
         """# MEAN oF1s:
         0.21066425060809993 0.24159184788399646
         RECALL:"""
-        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls = evaluate(train_loader, thresh)
+        box_overlap_scores, oF1s, avg_boxsize, img_size, N_boxes, recalls, precisions = evaluate(train_loader, thresh)
 
         print(" MEAN oF1s: ")
         print(np.mean(oF1s), np.std(oF1s))
         print(" RECALL:")
         print(np.mean(recalls), np.std(recalls))
+        print(" PRECISION:")
+        print(np.mean(precisions), np.std(precisions))
         for (k, v) in box_overlap_scores.items():
             print(f"{k}: {np.mean(v)} +- {np.std(v)}")
 

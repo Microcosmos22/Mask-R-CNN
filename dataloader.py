@@ -20,8 +20,32 @@ from sklearn.model_selection import train_test_split
 from torchvision.models.detection.rpn import AnchorGenerator
 from torchvision.transforms import functional as F_transforms
 
+from torchvision.models.detection import maskrcnn_resnet50_fpn
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+from torchvision.models.detection.mask_rcnn import MaskRCNNPredictor
 from torchvision.ops import box_iou
 
+def get_coco_initialized_model(num_classes=2):
+    # Load full COCO-trained Mask R-CNN
+    model = maskrcnn_resnet50_fpn(weights="DEFAULT")
+
+    # ---- Replace box predictor (class + bbox) ----
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(
+        in_features,
+        num_classes
+    )
+
+    # ---- Replace mask predictor ----
+    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
+    hidden_layer = 256
+    model.roi_heads.mask_predictor = MaskRCNNPredictor(
+        in_features_mask,
+        hidden_layer,
+        num_classes
+    )
+
+    return model
 
 def paint_boxes(output, target, combined_mask, topk=10, thickness=2):
     """
@@ -401,5 +425,62 @@ val_transform = A.Compose([
 ])
 
 if __name__ == "__main__":
+    from pathlib import Path
+    from torch.utils.data import Subset
 
-    print("test")
+    machinepath = "../pretrained_final.pth"
+    """ ONLY PLOTS THE FIRST ELEM IN BATCH """
+    plot = True
+    dices = []
+    submission = {
+        "case_id": [],
+        "annotation": []
+    }
+
+    model = get_coco_initialized_model()
+
+
+    if os.path.exists(machinepath):
+        print(" LOADING MODEL: ")
+        state = torch.load(machinepath, map_location="cpu")
+        model.load_state_dict(state, strict=False)
+
+
+    full_dataset = ForgeryDataset(
+        paths['train_authentic'],
+        paths['train_forged'],
+        paths['train_masks'],
+        transform=train_transform
+    )
+    train_idx, val_idx = train_test_split(
+        range(len(full_dataset)),
+        test_size=0.1,
+        random_state=42,
+        shuffle=False
+    )
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    train_subset = Subset(full_dataset, train_idx)
+    train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+    model.eval()
+
+    for idx, (images, target, filename, _) in enumerate(train_loader):
+        images = [image.to(device) for image in images]  # list of tensors
+
+        # 1. Transform (VERY IMPORTANT)
+        images, _ = model.transform(images, None)
+        target = target[0]
+        raw_img, raw_mask = full_dataset.get_raw_img_mask(idx)
+
+
+        with torch.no_grad():
+            features = model.backbone(images.tensors)
+            proposals, _ = model.rpn(images, features)
+
+            # This is what you want:
+            roi_features = model.roi_heads.box_roi_pool(
+                features, proposals, images.image_sizes
+            )
+
+
+            

@@ -105,31 +105,11 @@ print(len(train_subset), len(eval_subset))
 # optionally set transforms
 val_subset.dataset.transform = val_transform
 
-train_loader = DataLoader(train_subset, batch_size=8, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
+train_loader = DataLoader(train_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 val_loader = DataLoader(val_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 eval_loader = DataLoader(eval_subset, batch_size=1, shuffle=True, collate_fn=lambda x: tuple(zip(*x)))
 
-def get_coco_initialized_model(num_classes=2):
-    # Load full COCO-trained Mask R-CNN
-    model = maskrcnn_resnet50_fpn(weights="DEFAULT")
 
-    # ---- Replace box predictor (class + bbox) ----
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    model.roi_heads.box_predictor = FastRCNNPredictor(
-        in_features,
-        num_classes
-    )
-
-    # ---- Replace mask predictor ----
-    in_features_mask = model.roi_heads.mask_predictor.conv5_mask.in_channels
-    hidden_layer = 256
-    model.roi_heads.mask_predictor = MaskRCNNPredictor(
-        in_features_mask,
-        hidden_layer,
-        num_classes
-    )
-
-    return model
 
 def train_epoch(model, dataloader, optimizer, device, epoch):
     model.train()
