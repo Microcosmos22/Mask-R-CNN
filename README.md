@@ -1,15 +1,32 @@
 # Mask-R-CNN for image-manipulation detection (current state)
 
-<img src="images/out_target_mask.png" width="400">
+<img src="images/15.png" width="400">
 
 
-This repository presents an experimental Mask R-CNN–based approach for detecting image manipulations, developed as part of the Kaggle competition Recod.ai / LUC – Scientific Image Forgery Detection. The project documents both the implementation, parameter exploration and the systematic **debugging** process of a complex instance segmentation pipeline.
+This repository presents an experimental Mask R-CNN–based approach for detecting image manipulations, developed as part of the Kaggle competition Recod.ai / LUC – Scientific Image Forgery Detection. The project documents the stepwise fine-tuning, parameter exploration and the systematic **debugging** process of a complex instance segmentation pipeline.
 
 ## Motivation
 
-Detecting manipulated regions in scientific images requires precise localization, not just classification.  
-Instance segmentation models such as Mask R-CNN are a natural fit for this task, but their complexity makes them difficult to debug and validate.
-This project focuses on understanding where it fails and finding a systematic approach for the implementation of **multiple** Neural Networks.
+Detecting manipulated regions in scientific images requires **precise localization** based on subtle image artifacts such as discontinuities in lightning and noise.
+Instance segmentation models such as Mask R-CNN focus only on the relevant regions of interest, but require a **backbone/feature extractor** that is specialized on such artifacts.
+We start from a pre-trained model with a generic ResNet backbone which we **fine-tune in different phases**, yielding an acceptable result.
+Run:
+```
+python3 scoring.py
+```
+to obtain the main result of our final model `pretrained_final.pth`:
+```
+ MEAN oF1s (the main metric):
+0.414 +- 0.428
+ RECALL:
+0.842 +- 0.337
+ PRECISION:
+0.859 +- 0.0
+```
+
+
+The main conclusion states that the **bottleneck** lies in the classifier head, which is not able to distinguish forged regions from authentic regions.
+This, in turn, is caused by a generic feature extractor that was never trained to detect forgery features.
 
 
 
@@ -21,33 +38,34 @@ Mask R-CNN is a multi-stage convolutional neural network that performs:
 - Region proposal (RPN)
 - Bounding box regression
 - Object classification
-- Instance mask prediction
-Therefore it is also hard to debug which parts are failing, although we managed to narrow the **problem** down to the **Bounding Box regressor** inside the RPN.
+- Instance mask segmentation
+Therefore it is also hard to debug which parts are failing, although we managed to narrow the **problem** down to the **classifier head**.
 
 ## Approach
 
 - Inspired by the Kaggle notebook  
   https://www.kaggle.com/code/antonoof/eda-r-cnn-model  
-  which implements a Mask R-CNN–based pipeline but reports no quantitative results and only a single qualitative prediction on an authentic image (without a predicted mask).
+  which implements a Mask R-CNN–based pipeline but reports no quantitative results.
 
 - The notebook provides a solid starting point in terms of network architecture, data loading, and training loops. However, it lacks systematic numerical debugging and step-wise validation of individual model components (e.g. RPN, box regression, mask head).  
   This project aims to fill that gap by introducing structured debugging steps and targeted experiments to isolate failure modes.
   
-## Experimental Strategy
+## Stepwise fine-tuning
 
-To validate correctness, we follow a strict progression:
+We start from a COCO-pretrained Mask R-CNN but replace the original classifier (80 classes/objects) by a binary classifier (forged / authentic). Then we follow:
 
 1. **Overfit a single image**  
    - Image: `10017.png` (shown below)
-   - Goal: perfectly reproduce ground-truth masks
-   - Strategy: freeze parts of the network (e.g. mask head or backbone)
+   - Goal: achieve broad direction for the classifier + mask weights
+   - Strategy: freeze parts of the network (e.g. backbone)
 
 2. **Overfit a small subset (5 images)**  
-   - Isolate whether failures generalize beyond one sample
-   - Alternate between freezing backbone and heads
+   - Goal: Show classifier + mask different examples and shapes
+   - Strategy: Alternate between freezing backbone and heads
 
-3. **Train on the full dataset**  
-   - Only attempted once earlier stages succeed
+3. **Train on the full dataset**
+   - Goal: Multi-stage generalization
+   - Unfreeze last backbone layer and the classifier
 
 Weights are reused between steps to enable incremental fine-tuning.
 
@@ -76,8 +94,8 @@ The dataset is composed of both authentic and forged/manipulated images, which a
 
 ## Training
 
-Since we know that the RPN is failing, we tried to combine two strategies, giving four models:
-1. Freezing vs not freezing the head mask (responsible for segmenting the image)
+First we thought that the bounding box regression was failing - we tried to combine two strategies, giving four models:
+1. Freezing vs not freezing the mask head (responsible for segmenting the image)
 2. Painting vs not painting bounding boxes around the forged regions to make sure this error is not used.
 
 We will see that one of the four models outperforms the others:
@@ -99,7 +117,7 @@ and obtain:
 ```
 Model weights: 
 <All keys matched successfully>
-../recodai-luc-scientific-image-forgery-detection/train_images/forged/10017.png
+../recodai-luc-scientific-image-forgery-detection/train_images/forged/47.png
  Combining 2 masks and resizing to original
  Combining 100 masks and resizing to original
 Box 0: score = 0.0985
@@ -123,26 +141,25 @@ Idx: 0 DICE: 0.0088
 
 ## Results
 
-The resulting image shows out target in the left, but it also includes the two target bounding boxes, as well as the 10 best scoring predicted boxes from the model. We can see that the network has learnt to find the correct box size and regress it towards the target. However the overfit is not successful, and the classification score above is also very unsure about whether the regions are authentic or forged.
+The target img/mask in the left side includes the two target bounding boxes, as well as the 10 best scoring predicted boxes from the model.
+We can see that the network has learnt to find the correct box size and regress it towards the target - the mask head also shows good results.
 
-<img src="images/out_target_mask.png" width="400">
+But the log above shows that the classifier struggles to distinguish between authentic and forged regions.
+Because of that, our model is over-segmenting the image, a problem that couldnt be solved via thresholding.
+As a last proof, we enforced the original GT_scores and observed a significant increase in the final oF1 score.
 
-Plotting the boxes for different epochs also did not highlight any new information:
+<img src="images/47.png" width="400">
+
+## Conclusion / further work
+
+
+
+** Plotting the bounding box regression for different epochs:**
 
 <img src="images/boxes_training0.png" width="200">
 <img src="images/boxes_training50.png" width="200">
 <img src="images/boxes_training80.png" width="200">
 
-and it seems that, despite decreasing error, the boxes do not improve a lot from epoch 50 on.
 
-## Conclusion / further work
-
-We managed to find the bottleneck within this system of chained NNs and to improve its performance through model selection= Frozen head-mask + using the non-painted mask.
-Especially, we find:
-
-'DICE: 0.0088'
-
-which is an index for the match between the output and the target. 
-Further work on Mask R-CNN could further explore parameter space using more proposal boxes, stronger learning rates or freezing more parts of the algorithm; all of this while pursuing large **scores** values (confidence of box classification).
 
 
