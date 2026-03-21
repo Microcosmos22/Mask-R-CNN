@@ -141,19 +141,34 @@ Idx: 0 DICE: 0.0088
 
 ## 🧠 Results
 
-The target img/mask in the left side includes the two target bounding boxes, as well as the 10 best scoring predicted boxes from the model.
-We can see that the network has learnt to find the correct box size and regress it towards the target
+The image in the left has the manipulated region masked in yellow, as well as the GT/pred boxes marking the regions of interest.
+We can see that the network has learnt to find the correct box size and regress it towards potentially interesting regions.
 - The **mask and box** regression look good ✅
 
 But the log above shows that the **classifier struggles** to distinguish between authentic and forged regions. ❌
-- This is due to the **generic feature vectors** from ResNet, which have not (yet) been trained to encode forgery features.
+It is a fully connected layer fed by the feature vector of that region, which in turn comes from the **generic feature extractor: ResNet**.
+Therefore we might ask if the extracted features actually contain any cues about the forgery-ness of that region, or if we should have fine-tuned the whole feature extractor on the whole dataset.
+We propose this to be the next step in continuing this work.
   
-Because of that, our model is over-segmenting the image, a problem that we couldnt solve via thresholding.
+In any case, our model is over-segmenting the image - a problem that we cannot solve via thresholding.
 As a proof, we enforced the original GT_scores and observed a significant increase in the final oF1 score.
 
 <img src="images/47.png" width="400">
 
 ## 🚀 Conclusion / further work
+
+As discussed, we propose that the feature extractor/backbone has to be trained on the whole dataset. Its impossible for the classifier to distinguish manipulated regions if the features do not quantify the correct properties (discontinuities in noise, lighting, image and compression artifacts, rough edges etc.).
+
+We can actually check if the **feature vector contains forgery cues**:
+Collect N feature vectors of forged regions `forged_features.shape` is `[N, 256]`
+Collect N feature vectors of authentic regions `authentic_features.shape` is `[N, 256]`
+
+Average both vectors over the samples and subtract them:
+`forgery_quantification = f_mean - a_mean = tensor([-4.0986e-02,  4.9509e-01, -4.8352e-01,  4.5262e-01, -8.6340e-02 etc.]`
+
+There, any large element (>0.9) marks a quantity that consistently differs between all forged and authentic regions.
+We actually found three elements `tensor([0.9468, 1.0817, 1.0582], device='cuda:0')`. We could also just sum over the elements of `forgery_quantification` into a metric that quantifies how well the encoder is concentrating into our actual task: the detection of image manipulation artifacts. This could also be tracked and optimized during fine-tuning of the encoder.
+
 
 
 
